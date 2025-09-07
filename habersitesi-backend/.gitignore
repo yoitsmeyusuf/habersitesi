@@ -1,0 +1,7 @@
+bin/
+obj/
+wwwroot/
+
+# Production Secrets
+.env.secrets
+*.log

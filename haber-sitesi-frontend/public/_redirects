@@ -1,0 +1,41 @@
+# SPA fallback for client-side routing
+/*    /index.html   200
+
+# Security headers
+/*
+  X-Frame-Options: DENY
+  X-Content-Type-Options: nosniff
+  X-XSS-Protection: 1; mode=block
+  Referrer-Policy: strict-origin-when-cross-origin
+  Permissions-Policy: camera=(), microphone=(), geolocation=()
+
+# Cache static assets
+/assets/*
+  Cache-Control: public, max-age=31536000, immutable
+
+# Cache images
+*.png
+  Cache-Control: public, max-age=31536000
+*.jpg
+  Cache-Control: public, max-age=31536000
+*.jpeg
+  Cache-Control: public, max-age=31536000
+*.gif
+  Cache-Control: public, max-age=31536000
+*.webp
+  Cache-Control: public, max-age=31536000
+*.svg
+  Cache-Control: public, max-age=31536000
+
+# Cache fonts
+*.woff
+  Cache-Control: public, max-age=31536000
+*.woff2
+  Cache-Control: public, max-age=31536000
+
+# Don't cache HTML
+*.html
+  Cache-Control: public, max-age=0, must-revalidate
+
+# API requests - redirect to backend
+/api/*  https://YOUR_ACTUAL_DOMAIN.com/api/:splat  200

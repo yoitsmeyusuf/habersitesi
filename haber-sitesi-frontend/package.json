@@ -1,0 +1,47 @@
+{
+  "name": "haber-sitesi-frontend",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "build:prod": "NODE_ENV=production vite build --mode production",
+    "build:analyze": "vite build --mode production && npx vite-bundle-analyzer dist/stats.html",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "preview": "vite preview",
+    "preview:prod": "vite preview --mode production --host",
+    "analyze": "npx vite-bundle-analyzer dist/stats.html",
+    "clean": "rimraf dist",
+    "type-check": "tsc --noEmit",
+    "seo:validate": "node scripts/validate-seo.js",
+    "sitemap:generate": "node scripts/generate-sitemap.js",
+    "deploy:build": "npm run clean && npm run build:prod",
+    "deploy:preview": "npm run deploy:build && npm run preview:prod"
+  },
+  "dependencies": {
+    "@ckeditor/ckeditor5-react": "^11.0.0",
+    "ckeditor5": "^46.0.0",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0",
+    "react-router-dom": "^6.23.0"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.25.0",
+    "@types/react": "^19.1.2",
+    "@types/react-dom": "^19.1.2",
+    "@vitejs/plugin-react": "^4.4.1",
+    "autoprefixer": "^10.4.16",
+    "eslint": "^9.25.0",
+    "eslint-plugin-react-hooks": "^5.2.0",
+    "eslint-plugin-react-refresh": "^0.4.19",
+    "globals": "^16.0.0",
+    "postcss": "^8.4.38",
+    "rimraf": "^6.0.1",
+    "tailwindcss": "^3.4.3",
+    "terser": "^5.43.1",
+    "vite": "^6.3.5",
+    "vite-bundle-analyzer": "^1.1.0"
+  }
+}

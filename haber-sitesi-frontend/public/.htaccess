@@ -1,0 +1,17 @@
+# Apache Redirect Rules
+RewriteEngine On
+
+# Sitemap redirect
+RewriteRule ^sitemap\.xml$ https://api.rumbara.online/sitemap.xml [R=301,L]
+
+# Security headers
+Header always set Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+Header always set X-Content-Type-Options nosniff
+Header always set X-Frame-Options DENY
+
+# Cache static assets
+<FilesMatch "\.(css|js|png|jpg|jpeg|gif|svg|ico|woff|woff2)$">
+    ExpiresActive On
+    ExpiresDefault "access plus 1 year"
+    Header set Cache-Control "public, immutable"
+</FilesMatch>

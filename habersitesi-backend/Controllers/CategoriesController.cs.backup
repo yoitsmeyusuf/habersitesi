@@ -1,0 +1,205 @@
+using Microsoft.AspNetCore.Mvc;
+using habersitesi_backend.Models;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.AspNetCore.Authorization;
+using System.ComponentModel.DataAnnotations;
+
+[ApiController]
+[Route("api/categories")]
+public class CategoriesController : ControllerBase
+{
+    private readonly AppDbContext _context;
+    
+    public CategoriesController(AppDbContext context)
+    {
+        _context = context;
+    }
+
+    [HttpGet]
+    public async Task<ActionResult<IEnumerable<object>>> GetCategories([FromQuery] bool includeCount = false)
+    {
+        if (includeCount)
+        {
+            var categoriesWithCount = await _context.Categories
+                .Select(c => new
+                {
+                    Id = c.Id,
+                    Name = c.Name,
+                    NewsCount = _context.News.Count(n => n.Category == c.Name)
+                })
+                .OrderBy(c => c.Name)
+                .ToListAsync();
+            
+            return Ok(categoriesWithCount);
+        }
+
+        var categories = await _context.Categories
+            .Select(c => new { c.Id, c.Name })
+            .OrderBy(c => c.Name)
+            .ToListAsync();
+        
+        return Ok(categories);
+    }
+
+    [HttpGet("{id}")]
+    public async Task<IActionResult> GetCategory(int id)
+    {
+        var category = await _context.Categories
+            .Select(c => new
+            {
+                c.Id,
+                c.Name,
+                NewsCount = _context.News.Count(n => n.Category == c.Name)
+            })
+            .FirstOrDefaultAsync(c => c.Id == id);
+
+        if (category == null)
+            return NotFound(new { message = "Kategori bulunamadı." });
+
+        return Ok(category);
+    }
+
+    [Authorize(Roles = "admin,author")]
+    [HttpPost]
+    public async Task<IActionResult> AddCategory([FromBody] CategoryCreateDto dto)
+    {
+        if (!ModelState.IsValid)
+            return BadRequest(ModelState);
+
+        if (string.IsNullOrWhiteSpace(dto.Name))
+            return BadRequest(new { message = "Kategori adı boş olamaz." });
+
+        if (dto.Name.Length < 2 || dto.Name.Length > 50)
+            return BadRequest(new { message = "Kategori adı 2-50 karakter arasında olmalıdır." });
+
+        var normalizedName = dto.Name.Trim();
+
+        if (await _context.Categories.AnyAsync(c => c.Name.ToLower() == normalizedName.ToLower()))
+            return BadRequest(new { message = "Bu kategori zaten mevcut." });
+
+        var category = new Category { Name = normalizedName };
+        _context.Categories.Add(category);
+        await _context.SaveChangesAsync();
+        
+        return CreatedAtAction(nameof(GetCategory), new { id = category.Id }, 
+            new { category.Id, category.Name, message = "Kategori başarıyla oluşturuldu." });
+    }
+
+     [Authorize(Roles = "admin,author")]
+    [HttpPut("{id}")]
+    public async Task<IActionResult> UpdateCategory(int id, [FromBody] CategoryUpdateDto dto)
+    {
+        if (!ModelState.IsValid)
+            return BadRequest(ModelState);
+
+        var category = await _context.Categories.FindAsync(id);
+        if (category == null)
+            return NotFound(new { message = "Kategori bulunamadı." });
+
+        if (string.IsNullOrWhiteSpace(dto.Name))
+            return BadRequest(new { message = "Kategori adı boş olamaz." });
+
+        if (dto.Name.Length < 2 || dto.Name.Length > 50)
+            return BadRequest(new { message = "Kategori adı 2-50 karakter arasında olmalıdır." });
+
+        var normalizedName = dto.Name.Trim();
+
+        if (await _context.Categories.AnyAsync(c => c.Id != id && c.Name.ToLower() == normalizedName.ToLower()))
+            return BadRequest(new { message = "Bu kategori adı zaten kullanılıyor." });
+
+        var oldName = category.Name;
+        category.Name = normalizedName;
+
+        // Update all news with old category name to new name
+        var newsToUpdate = await _context.News.Where(n => n.Category == oldName).ToListAsync();
+        foreach (var news in newsToUpdate)
+        {
+            news.Category = normalizedName;
+        }
+
+        await _context.SaveChangesAsync();
+        
+        return Ok(new { 
+            category.Id, 
+            category.Name, 
+            updatedNewsCount = newsToUpdate.Count,
+            message = "Kategori başarıyla güncellendi." 
+        });
+    }
+
+    [Authorize(Roles = "admin")]
+    [HttpDelete("{id}")]
+    public async Task<IActionResult> DeleteCategory(int id)
+    {
+        var category = await _context.Categories.FindAsync(id);
+        if (category == null)
+            return NotFound(new { message = "Kategori bulunamadı." });
+
+        var newsCount = await _context.News.CountAsync(n => n.Category == category.Name);
+        if (newsCount > 0)
+            return BadRequest(new { 
+                message = $"Bu kategoride {newsCount} haber bulunuyor. Önce haberleri silin veya başka kategoriye taşıyın." 
+            });
+
+        _context.Categories.Remove(category);
+        await _context.SaveChangesAsync();
+        
+        return Ok(new { success = true, message = "Kategori başarıyla silindi." });
+    }
+
+    [Authorize(Roles = "admin")]
+    [HttpPost("{id}/move-news")]
+    public async Task<IActionResult> MoveNewsToCategory(int id, [FromBody] MoveCategoryDto dto)
+    {
+        if (!ModelState.IsValid)
+            return BadRequest(ModelState);
+
+        var sourceCategory = await _context.Categories.FindAsync(id);
+        if (sourceCategory == null)
+            return NotFound(new { message = "Kaynak kategori bulunamadı." });
+
+        var targetCategory = await _context.Categories.FindAsync(dto.TargetCategoryId);
+        if (targetCategory == null)
+            return BadRequest(new { message = "Hedef kategori bulunamadı." });
+
+        if (id == dto.TargetCategoryId)
+            return BadRequest(new { message = "Kaynak ve hedef kategori aynı olamaz." });
+
+        var newsToMove = await _context.News
+            .Where(n => n.Category == sourceCategory.Name)
+            .ToListAsync();
+
+        foreach (var news in newsToMove)
+        {
+            news.Category = targetCategory.Name;
+        }
+
+        await _context.SaveChangesAsync();
+        
+        return Ok(new { 
+            success = true, 
+            movedNewsCount = newsToMove.Count,
+            message = $"{newsToMove.Count} haber '{targetCategory.Name}' kategorisine taşındı." 
+        });
+    }
+}
+
+public class CategoryCreateDto
+{
+    [Required]
+    [StringLength(50, MinimumLength = 2)]
+    public string Name { get; set; }
+}
+
+public class CategoryUpdateDto
+{
+    [Required]
+    [StringLength(50, MinimumLength = 2)]
+    public string Name { get; set; }
+}
+
+public class MoveCategoryDto
+{
+    [Required]
+    public int TargetCategoryId { get; set; }
+}

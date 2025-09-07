@@ -1,0 +1,43 @@
+User-agent: *
+Allow: /
+
+# Sitemap (redirected to backend via IIS)
+Sitemap: https://habersitesi.rumbara.online/sitemap.xml
+
+# Block admin and sensitive areas
+Disallow: /admin/
+Disallow: /login/
+Disallow: /register/
+Disallow: /profile/
+Disallow: /api/
+Disallow: /*.json$
+Disallow: /auth/
+Disallow: /reset-password/
+Disallow: /verify-email/
+
+# Performance optimizations for crawlers
+Crawl-delay: 1
+
+# Allow important content and assets
+Allow: /
+Allow: /haber/
+Allow: /category/
+Allow: /authors/
+Allow: /search/
+Allow: /about/
+Allow: /contact/
+Allow: /faq/
+
+# Allow static assets
+Allow: *.css
+Allow: *.js
+Allow: *.png
+Allow: *.jpg
+Allow: *.jpeg
+Allow: *.gif
+Allow: *.webp
+Allow: *.svg
+Allow: *.ico
+Allow: *.woff
+Allow: *.woff2
+Allow: *.ttf

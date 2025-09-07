@@ -1,0 +1,1560 @@
+// Environment configuration
+import { ENV } from '../utils/environment'
+import logger from '../utils/logger.js'
+
+const API_URL = ENV.API_URL
+
+// Rate limiting instance
+import { RateLimiter } from '../utils/security'
+const loginRateLimit = new RateLimiter(5, 300000) // 5 attempts per 5 minutes
+const commentRateLimit = new RateLimiter(10, 60000) // 10 comments per minute
+
+// Cookie helpers - Secure implementation
+function setCookie(name, value, days = 7) {
+  const expires = new Date(Date.now() + days * 864e5).toUTCString()
+  const secure = window.location.protocol === 'https:' ? '; Secure' : ''
+  const sameSite = '; SameSite=Strict'
+  document.cookie = name + '=' + encodeURIComponent(value) + '; expires=' + expires + '; path=/' + secure + sameSite
+}
+
+function getCookie(name) {
+  return document.cookie.split('; ').reduce((r, v) => {
+    const parts = v.split('=')
+    return parts[0] === name ? decodeURIComponent(parts[1]) : r
+  }, '')
+}
+
+function deleteCookie(name) {
+  document.cookie = name + '=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/'
+}
+
+// Auth header helper
+function withAuth() {
+  const token = getCookie('token') || localStorage.getItem('token')
+  return token ? { 'Authorization': `Bearer ${token}` } : {}
+}
+
+// Token management
+function getToken() {
+  return getCookie('token') || localStorage.getItem('token')
+}
+
+// Safe JSON parser
+async function safeJson(response) {
+  try {
+    // Check if response is valid
+    if (!response) {
+      console.error('No response object provided to safeJson')
+      return {}
+    }
+    
+    // Check if response has text method
+    if (typeof response.text !== 'function') {
+      console.error('Response object does not have text() method:', response)
+      return {}
+    }
+    
+    const text = await response.text()
+    return text ? JSON.parse(text) : {}
+  } catch (error) {
+    console.error('safeJson error:', error)
+    return {}
+  }
+}
+
+// File type validation helper
+async function validateFileType(file) {
+  return new Promise((resolve) => {
+    const reader = new FileReader()
+    reader.onload = function(e) {
+      const arr = new Uint8Array(e.target.result).subarray(0, 4)
+      let header = ""
+      for(let i = 0; i < arr.length; i++) {
+        header += arr[i].toString(16)
+      }
+      
+      // Check magic numbers for common image formats
+      const validHeaders = [
+        'ffd8ffe0', 'ffd8ffe1', 'ffd8ffe2', 'ffd8ffe3', 'ffd8ffe8', // JPEG
+        '89504e47', // PNG
+        '47494638', // GIF
+        '52494646', // WebP (RIFF)
+      ]
+      
+      resolve(validHeaders.some(validHeader => header.startsWith(validHeader)))
+    }
+    reader.readAsArrayBuffer(file)
+  })
+}
+
+const api = {
+  // Authentication
+  async login(username, password) {
+    logger.log('Login attempt for user:', username)
+    
+    if (!loginRateLimit.canMakeRequest()) {
+      throw new Error('Çok fazla giriş denemesi. 5 dakika sonra tekrar deneyin.')
+    }
+    
+    try {
+      logger.log('Making request to:', `${API_URL}/auth/login`)
+      const res = await fetch(`${API_URL}/auth/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username, password })
+      })
+      
+      logger.log('Response status:', res.status)
+      const data = await safeJson(res)
+      
+      if (!res.ok) {
+        loginRateLimit.recordRequest()
+        throw new Error(data.message || 'Giriş başarısız')
+      }
+      
+      if (data.token) {
+        setCookie('token', data.token, 7)
+        localStorage.setItem('token', data.token)
+        logger.log('Authentication successful')
+      }
+      
+      return data
+    } catch (err) {
+      logger.error('Login error:', err.message)
+      throw err
+    }
+  },
+
+  async register(userData) {
+    try {
+      const res = await fetch(`${API_URL}/auth/register`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(userData)
+      })
+      
+      const data = await safeJson(res)
+      
+      if (!res.ok) {
+        throw new Error(data.message || 'Kayıt başarısız')
+      }
+      
+      return data
+    } catch (err) {
+      logger.error('Register error:', err.message)
+      throw err
+    }
+  },
+
+  async logout() {
+    try {
+      await fetch(`${API_URL}/auth/logout`, {
+        method: 'POST',
+        headers: withAuth()
+      })
+    } catch (err) {
+      console.error('Logout error:', err)
+    } finally {
+      deleteCookie('token')
+      localStorage.removeItem('token')
+    }
+  },
+
+  async getCurrentUser() {
+    try {
+      return await this.get('/auth/me')
+    } catch {
+      return null
+    }
+  },
+
+  async googleAuth(credential) {
+    try {
+      const res = await fetch(`${API_URL}/auth/google`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ credential })
+      })
+      
+      const data = await safeJson(res)
+      
+      if (!res.ok) {
+        throw new Error(data.message || 'Google authentication failed')
+      }
+      
+      if (data.token) {
+        setCookie('token', data.token, 7)
+        localStorage.setItem('token', data.token)
+      }
+      
+      return data
+    } catch (err) {
+      console.error('Google auth error:', err)
+      throw err
+    }
+  },
+
+  async getAuthorProfile(username) {
+    try {
+      const res = await fetch(`${API_URL}/auth/author/${username}`)
+      
+      if (!res.ok) {
+        const data = await safeJson(res)
+        throw new Error(data.message || 'Author profili bulunamadı')
+      }
+      
+      return await safeJson(res)
+    } catch (err) {
+      console.error('Get author profile error:', err)
+      throw err
+    }
+  },
+
+  async updateProfile(profileData) {
+    try {
+      const res = await fetch(`${API_URL}/auth/profile`, {
+        method: 'PUT',
+        headers: { ...withAuth(), 'Content-Type': 'application/json' },
+        body: JSON.stringify(profileData)
+      })
+      
+      const data = await safeJson(res)
+      
+      if (!res.ok) {
+        throw new Error(data.message || 'Profil güncellenemedi')
+      }
+      
+      return data
+    } catch (err) {
+      console.error('Update profile error:', err)
+      throw err
+    }
+  },
+
+  async updatePassword(passwordData) {
+    try {
+      const res = await fetch(`${API_URL}/auth/password`, {
+        method: 'PUT',
+        headers: { ...withAuth(), 'Content-Type': 'application/json' },
+        body: JSON.stringify(passwordData)
+      })
+      
+      const data = await safeJson(res)
+      
+      if (!res.ok) {
+        throw new Error(data.message || 'Şifre güncellenemedi')
+      }
+      
+      return data
+    } catch (err) {
+      console.error('Update password error:', err)
+      throw err
+    }
+  },
+
+  async confirmEmail(email, token) {
+    try {
+      const res = await fetch(`${API_URL}/auth/confirm-email?email=${encodeURIComponent(email)}&token=${encodeURIComponent(token)}`)
+      
+      const data = await safeJson(res)
+      
+      if (!res.ok) {
+        throw new Error(data.message || 'Email doğrulanamadı')
+      }
+      
+      return data
+    } catch (err) {
+      console.error('Confirm email error:', err)
+      throw err
+    }
+  },
+
+  async resendConfirmation(email) {
+    try {
+      const res = await fetch(`${API_URL}/auth/resend-confirmation`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email })
+      })
+      
+      const data = await safeJson(res)
+      
+      if (!res.ok) {
+        throw new Error(data.message || 'Doğrulama emaili gönderilemedi')
+      }
+      
+      return data
+    } catch (err) {
+      console.error('Resend confirmation error:', err)
+      throw err
+    }
+  },
+
+  async isEmailVerified(username) {
+    try {
+      const res = await fetch(`${API_URL}/auth/is-email-verified?username=${encodeURIComponent(username)}`)
+      
+      const data = await safeJson(res)
+      
+      if (!res.ok) {
+        throw new Error(data.message || 'Email doğrulama durumu kontrol edilemedi')
+      }
+      
+      return data
+    } catch (err) {
+      console.error('Check email verification error:', err)
+      throw err
+    }
+  },
+
+  async forgotPassword(email) {
+    try {
+      const res = await fetch(`${API_URL}/auth/forgot-password`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email })
+      })
+      
+      const data = await safeJson(res)
+      
+      if (!res.ok) {
+        throw new Error(data.message || 'Şifre sıfırlama talebi gönderilemedi')
+      }
+      
+      return data
+    } catch (err) {
+      console.error('Forgot password error:', err)
+      throw err
+    }
+  },
+
+  async resetPassword(email, token, newPassword) {
+    try {
+      const res = await fetch(`${API_URL}/auth/reset-password`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, token, newPassword })
+      })
+      
+      const data = await safeJson(res)
+      
+      if (!res.ok) {
+        throw new Error(data.message || 'Şifre sıfırlanamadı')
+      }
+      
+      return data
+    } catch (err) {
+      console.error('Reset password error:', err)
+      throw err
+    }
+  },
+
+  async uploadAvatar(formData) {
+    try {
+      const res = await fetch(`${API_URL}/auth/avatar`, {
+        method: 'POST',
+        headers: withAuth(),
+        body: formData
+      })
+      
+      const data = await safeJson(res)
+      
+      if (!res.ok) {
+        throw new Error(data.message || 'Avatar yüklenemedi')
+      }
+      
+      return data
+    } catch (err) {
+      console.error('Upload avatar error:', err)
+      throw err
+    }
+  },
+
+  // News Management
+  async getNews(params = {}) {
+    try {
+      const queryString = new URLSearchParams(params).toString()
+      const endpoint = `/haber${queryString ? '?' + queryString : ''}`
+      return await this.get(endpoint)
+    } catch (err) {
+      console.error('Get news error:', err)
+      throw err
+    }
+  },
+
+  async getNewsById(id) {
+    try {
+      return await this.get(`/haber/${id}`)
+    } catch (err) {
+      console.error('Get news by id error:', err)
+      throw err
+    }
+  },
+
+  async getNewsBySlug(slug) {
+    try {
+      return await this.get(`/haber/${slug}`)
+    } catch (err) {
+      console.error('Get news by slug error:', err)
+      throw err
+    }
+  },
+
+  async searchNews(searchTerm, params = {}) {
+    try {
+      const queryParams = { ...params, q: searchTerm }
+      const queryString = new URLSearchParams(queryParams).toString()
+      return await this.get(`/haber/search?${queryString}`)
+    } catch (err) {
+      console.error('Search news error:', err)
+      throw err
+    }
+  },
+
+  async advancedSearchNews(filters) {
+    try {
+      const queryString = new URLSearchParams(filters).toString()
+      return await this.get(`/haber/search?${queryString}`)
+    } catch (err) {
+      console.error('Advanced search news error:', err)
+      throw err
+    }
+  },
+
+  async getFeaturedNews(params = {}) {
+    try {
+      const queryString = new URLSearchParams(params).toString()
+      const endpoint = `/haber/featured${queryString ? '?' + queryString : ''}`
+      return await this.get(endpoint)
+    } catch (err) {
+      console.error('Get featured news error:', err)
+      throw err
+    }
+  },
+
+  async getFeaturedList() {
+    try {
+      return await this.get('/haber/featured-list')
+    } catch (err) {
+      console.error('Get featured list error:', err)
+      throw err
+    }
+  },
+
+  async getNewsByCategory(category, params = {}) {
+    try {
+      const queryString = new URLSearchParams(params).toString()
+      const endpoint = `/haber/by-category/${category}${queryString ? '?' + queryString : ''}`
+      return await this.get(endpoint)
+    } catch (err) {
+      console.error('Get news by category error:', err)
+      throw err
+    }
+  },
+
+  async getPopularNews(params = {}) {
+    try {
+      const queryString = new URLSearchParams(params).toString()
+      const endpoint = `/haber/popular${queryString ? '?' + queryString : ''}`
+      return await this.get(endpoint)
+    } catch (err) {
+      console.error('Get popular news error:', err)
+      throw err
+    }
+  },
+
+  async createNews(newsData) {
+    try {
+      const res = await fetch(`${API_URL}/haber`, {
+        method: 'POST',
+        headers: { ...withAuth(), 'Content-Type': 'application/json' },
+        body: JSON.stringify(newsData)
+      })
+      
+      const data = await safeJson(res)
+      
+      if (!res.ok) {
+        throw new Error(data.message || 'Haber oluşturulamadı')
+      }
+      
+      return data
+    } catch (err) {
+      console.error('Create news error:', err)
+      throw err
+    }
+  },
+
+  async updateNews(id, newsData) {
+    try {
+      const res = await fetch(`${API_URL}/haber/${id}`, {
+        method: 'PUT',
+        headers: { ...withAuth(), 'Content-Type': 'application/json' },
+        body: JSON.stringify(newsData)
+      })
+      
+      const data = await safeJson(res)
+      
+      if (!res.ok) {
+        throw new Error(data.message || 'Haber güncellenemedi')
+      }
+      
+      return data
+    } catch (err) {
+      console.error('Update news error:', err)
+      throw err
+    }
+  },
+
+  async addNews(newsData) {
+    try {
+      logger.log('Adding news with data provided')
+      logger.log('API endpoint URL:', `${API_URL}/haber`)
+      
+      // Check if API_URL is valid
+      if (!API_URL) {
+        throw new Error('API_URL is not defined')
+      }
+      
+      let res
+      try {
+        console.log('Starting fetch request...')
+        res = await fetch(`${API_URL}/haber`, {
+          method: 'POST',
+          headers: { 
+            ...withAuth(), 
+            'Content-Type': 'application/json' 
+          },
+          body: JSON.stringify(newsData)
+        })
+      } catch (fetchError) {
+        console.error('Fetch operation failed:', fetchError)
+        throw new Error(`Network error: Backend sunucusuna bağlanılamıyor. ${fetchError.message}`)
+      }
+      
+      // Check if response is a valid Response object
+      if (!res || typeof res !== 'object') {
+        throw new Error('Invalid response object received')
+      }
+      
+      if (typeof res.text !== 'function') {
+        console.error('Response object does not have text method:', res)
+        throw new Error('Invalid response: response.text is not a function')
+      }
+      
+      let data = {}
+      try {
+        const text = await res.text()
+        data = text ? JSON.parse(text) : {}
+      } catch (parseError) {
+        console.error('JSON parse error:', parseError)
+        throw new Error(`Response parsing failed: ${parseError.message}`)
+      }
+      
+      if (!res.ok) {
+        const errorMsg = data.message || `HTTP ${res.status}: ${res.statusText || 'Haber eklenemedi'}`
+        throw new Error(errorMsg)
+      }
+      
+      return data
+    } catch (err) {
+      console.error('Add news error:', err)
+      throw err
+    }
+  },
+
+  async getPendingNews(page = 1, limit = 20) {
+    try {
+      const params = new URLSearchParams({ 
+        page: page.toString(), 
+        limit: limit.toString(),
+        status: 'pending'
+      })
+      
+      const res = await fetch(`${API_URL}/haber?${params}`, {
+        headers: withAuth()
+      })
+      
+      const data = await safeJson(res)
+      
+      if (!res.ok) {
+        throw new Error(data.message || 'Bekleyen haberler yüklenemedi')
+      }
+      
+      return data
+    } catch (err) {
+      console.error('Get pending news error:', err)
+      throw err
+    }
+  },
+
+  async getAllNewsForAdmin(page = 1, limit = 50) {
+    try {
+      const params = new URLSearchParams({ 
+        page: page.toString(), 
+        limit: limit.toString(),
+        admin: 'true'
+      })
+      
+      const res = await fetch(`${API_URL}/haber?${params}`, {
+        headers: withAuth()
+      })
+      
+      const data = await safeJson(res)
+      
+      if (!res.ok) {
+        throw new Error(data.message || 'Admin haberleri yüklenemedi')
+      }
+      
+      return data
+    } catch (err) {
+      console.error('Get all news for admin error:', err)
+      throw err
+    }
+  },
+
+  // Admin Controller - Get all news with bearer token authorization
+  async getAdminAllNews(page = 1, limit = 50) {
+    try {
+      const params = new URLSearchParams({ 
+        page: page.toString(), 
+        limit: limit.toString()
+      })
+      
+      const res = await fetch(`${API_URL}/admin/all-news?${params}`, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+          ...withAuth()
+        }
+      })
+      
+      const data = await safeJson(res)
+      
+      if (!res.ok) {
+        throw new Error(data.message || 'Admin tüm haberler yüklenemedi')
+      }
+      
+      return data
+    } catch (err) {
+      console.error('Get admin all news error:', err)
+      throw err
+    }
+  },
+
+  async deleteNews(id) {
+    try {
+      const res = await fetch(`${API_URL}/haber/${id}`, {
+        method: 'DELETE',
+        headers: withAuth()
+      })
+      
+      if (!res.ok) {
+        const data = await safeJson(res)
+        throw new Error(data.message || 'Haber silinemedi')
+      }
+      
+      return await safeJson(res)
+    } catch (err) {
+      console.error('Delete news error:', err)
+      throw err
+    }
+  },
+
+  async setFeatured(id, featured = true) {
+    try {
+      const res = await fetch(`${API_URL}/haber/${id}/featured`, {
+        method: 'PUT',
+        headers: { ...withAuth(), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ featured })
+      })
+      
+      if (!res.ok) {
+        const data = await safeJson(res)
+        throw new Error(data.message || 'Manşet durumu güncellenemedi')
+      }
+      
+      return await safeJson(res)
+    } catch (err) {
+      console.error('Set featured error:', err)
+      throw err
+    }
+  },
+
+  // Admin news approval - POST /api/admin/approve-news/{id}
+  async approveNews(id) {
+    try {
+      const res = await fetch(`${API_URL}/admin/approve-news/${id}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...withAuth()
+        }
+      })
+      
+      if (!res.ok) {
+        const data = await safeJson(res)
+        throw new Error(data.message || 'Haber onaylanamadı')
+      }
+      
+      return await safeJson(res)
+    } catch (err) {
+      console.error('Approve news error:', err)
+      throw err
+    }
+  },
+
+  async rejectNews(id, reason = '') {
+    try {
+      const res = await fetch(`${API_URL}/admin/reject-news/${id}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...withAuth()
+        },
+        body: JSON.stringify({ reason })
+      })
+      
+      if (!res.ok) {
+        const data = await safeJson(res)
+        throw new Error(data.message || 'Haber reddedilemedi')
+      }
+      
+      return await safeJson(res)
+    } catch (err) {
+      console.error('Reject news error:', err)
+      throw err
+    }
+  },
+
+  // Categories
+  async getCategories() {
+    try {
+      return await this.get('/categories')
+    } catch (err) {
+      console.error('Get categories error:', err)
+      throw err
+    }
+  },
+
+  async createCategory(categoryData) {
+    try {
+      const res = await fetch(`${API_URL}/categories`, {
+        method: 'POST',
+        headers: { ...withAuth(), 'Content-Type': 'application/json' },
+        body: JSON.stringify(categoryData)
+      })
+      
+      const data = await safeJson(res)
+      
+      if (!res.ok) {
+        throw new Error(data.message || 'Kategori oluşturulamadı')
+      }
+      
+      return data
+    } catch (err) {
+      console.error('Create category error:', err)
+      throw err
+    }
+  },
+
+  async updateCategory(id, categoryData) {
+    try {
+      const res = await fetch(`${API_URL}/categories/${id}`, {
+        method: 'PUT',
+        headers: { ...withAuth(), 'Content-Type': 'application/json' },
+        body: JSON.stringify(categoryData)
+      })
+      
+      const data = await safeJson(res)
+      
+      if (!res.ok) {
+        throw new Error(data.message || 'Kategori güncellenemedi')
+      }
+      
+      return data
+    } catch (err) {
+      console.error('Update category error:', err)
+      throw err
+    }
+  },
+
+  async deleteCategory(id) {
+    try {
+      // Önce o kategorideki haberleri silelim
+      const categoryDetails = await this.getCategories()
+      const category = categoryDetails.data?.find(cat => cat.id === id)
+      
+      if (category) {
+        // O kategorideki haberleri getir
+        const newsInCategory = await this.getNews({ category: category.name, pageSize: 1000 })
+        
+        // Haberleri tek tek sil
+        if (newsInCategory.data && newsInCategory.data.length > 0) {
+          for (const news of newsInCategory.data) {
+            try {
+              await this.deleteNews(news.id)
+            } catch (newsError) {
+              console.error(`Haber silinemedi (ID: ${news.id}):`, newsError)
+              // Devam et, diğer haberleri de silmeye çalış
+            }
+          }
+        }
+      }
+      
+      // Şimdi kategoriyi sil
+      const res = await fetch(`${API_URL}/categories/${id}`, {
+        method: 'DELETE',
+        headers: withAuth()
+      })
+      
+      if (!res.ok) {
+        const data = await safeJson(res)
+        throw new Error(data.message || 'Kategori silinemedi')
+      }
+      
+      return await safeJson(res)
+    } catch (err) {
+      console.error('Delete category error:', err)
+      throw err
+    }
+  },
+
+  // Comments
+  async getComments(params = {}) {
+    try {
+      const queryString = new URLSearchParams(params).toString()
+      const res = await fetch(`${API_URL}/comments${queryString ? '?' + queryString : ''}`, {
+        headers: withAuth()
+      })
+      
+      if (!res.ok) {
+        const data = await safeJson(res)
+        throw new Error(data.message || 'Yorumlar yüklenemedi')
+      }
+      
+      return await safeJson(res)
+    } catch (err) {
+      console.error('Get comments error:', err)
+      throw err
+    }
+  },
+
+  async getNewsComments(newsId) {
+    try {
+      return await this.get(`/haber/${newsId}/comments`)
+    } catch (err) {
+      console.error('Get news comments error:', err)
+      return { comments: [] }
+    }
+  },
+
+  async getCommentReplies(commentId) {
+    try {
+      return await this.get(`/comments/${commentId}/replies`)
+    } catch (err) {
+      console.error('Get comment replies error:', err)
+      return { replies: [] }
+    }
+  },
+
+  async createComment(newsId, commentData) {
+    if (!commentRateLimit.canMakeRequest()) {
+      throw new Error('Çok fazla yorum gönderiyorsunuz. Lütfen bekleyin.')
+    }
+    
+    try {
+      const result = await this.post(`/haber/${newsId}/comments`, commentData)
+      return result
+    } catch (err) {
+      console.error('Create comment error:', err)
+      commentRateLimit.recordRequest()
+      throw err
+    }
+  },
+
+  async approveComment(id) {
+    try {
+      const res = await fetch(`${API_URL}/comments/${id}/approve`, {
+        method: 'PUT',
+        headers: withAuth()
+      })
+      
+      if (!res.ok) {
+        const data = await safeJson(res)
+        throw new Error(data.message || 'Yorum onaylanamadı')
+      }
+      
+      return await safeJson(res)
+    } catch (err) {
+      console.error('Approve comment error:', err)
+      throw err
+    }
+  },
+
+  async rejectComment(id) {
+    try {
+      const res = await fetch(`${API_URL}/comments/${id}/reject`, {
+        method: 'PUT',
+        headers: withAuth()
+      })
+      
+      if (!res.ok) {
+        const data = await safeJson(res)
+        throw new Error(data.message || 'Yorum reddedilemedi')
+      }
+      
+      return await safeJson(res)
+    } catch (err) {
+      console.error('Reject comment error:', err)
+      throw err
+    }
+  },
+
+  async deleteComment(id) {
+    try {
+      const res = await fetch(`${API_URL}/comments/${id}`, {
+        method: 'DELETE',
+        headers: withAuth()
+      })
+      
+      if (!res.ok) {
+        const data = await safeJson(res)
+        throw new Error(data.message || 'Yorum silinemedi')
+      }
+      
+      return await safeJson(res)
+    } catch (err) {
+      console.error('Delete comment error:', err)
+      throw err
+    }
+  },
+
+  // Users
+  async getUsers(params = {}) {
+    try {
+      const queryString = new URLSearchParams(params).toString()
+      const res = await fetch(`${API_URL}/admin/users${queryString ? '?' + queryString : ''}`, {
+        headers: withAuth()
+      })
+      
+      if (!res.ok) {
+        const data = await safeJson(res)
+        throw new Error(data.message || 'Kullanıcılar yüklenemedi')
+      }
+      
+      return await safeJson(res)
+    } catch (err) {
+      console.error('Get users error:', err)
+      throw err
+    }
+  },
+
+  async createUser(userData) {
+    try {
+      const res = await fetch(`${API_URL}/users`, {
+        method: 'POST',
+        headers: { ...withAuth(), 'Content-Type': 'application/json' },
+        body: JSON.stringify(userData)
+      })
+      
+      const data = await safeJson(res)
+      
+      if (!res.ok) {
+        throw new Error(data.message || 'Kullanıcı oluşturulamadı')
+      }
+      
+      return data
+    } catch (err) {
+      console.error('Create user error:', err)
+      throw err
+    }
+  },
+
+  async updateUser(id, userData) {
+    try {
+      const res = await fetch(`${API_URL}/users/${id}`, {
+        method: 'PUT',
+        headers: { ...withAuth(), 'Content-Type': 'application/json' },
+        body: JSON.stringify(userData)
+      })
+      
+      const data = await safeJson(res)
+      
+      if (!res.ok) {
+        throw new Error(data.message || 'Kullanıcı güncellenemedi')
+      }
+      
+      return data
+    } catch (err) {
+      console.error('Update user error:', err)
+      throw err
+    }
+  },
+
+  async deleteUser(id) {
+    try {
+      const res = await fetch(`${API_URL}/users/${id}`, {
+        method: 'DELETE',
+        headers: withAuth()
+      })
+      
+      if (!res.ok) {
+        const data = await safeJson(res)
+        throw new Error(data.message || 'Kullanıcı silinemedi')
+      }
+      
+      return await safeJson(res)
+    } catch (err) {
+      console.error('Delete user error:', err)
+      throw err
+    }
+  },
+
+  async updateUserRole(id, role) {
+    try {
+      const res = await fetch(`${API_URL}/users/${id}/role`, {
+        method: 'PUT',
+        headers: { ...withAuth(), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ role })
+      })
+      
+      const data = await safeJson(res)
+      
+      if (!res.ok) {
+        throw new Error(data.message || 'Kullanıcı rolü güncellenemedi')
+      }
+      
+      return data
+    } catch (err) {
+      console.error('Update user role error:', err)
+      throw err
+    }
+  },
+
+  async activateUser(id) {
+    try {
+      const res = await fetch(`${API_URL}/users/${id}/activate`, {
+        method: 'PUT',
+        headers: withAuth()
+      })
+      
+      const data = await safeJson(res)
+      
+      if (!res.ok) {
+        throw new Error(data.message || 'Kullanıcı aktifleştirilemedi')
+      }
+      
+      return data
+    } catch (err) {
+      console.error('Activate user error:', err)
+      throw err
+    }
+  },
+
+  async deactivateUser(id) {
+    try {
+      const res = await fetch(`${API_URL}/users/${id}/deactivate`, {
+        method: 'PUT',
+        headers: withAuth()
+      })
+      
+      const data = await safeJson(res)
+      
+      if (!res.ok) {
+        throw new Error(data.message || 'Kullanıcı pasifleştirilemedi')
+      }
+      
+      return data
+    } catch (err) {
+      console.error('Deactivate user error:', err)
+      throw err
+    }
+  },
+
+  async banUser(id) {
+    try {
+      const res = await fetch(`${API_URL}/users/${id}/ban`, {
+        method: 'PUT',
+        headers: withAuth()
+      })
+      
+      const data = await safeJson(res)
+      
+      if (!res.ok) {
+        throw new Error(data.message || 'Kullanıcı yasaklanamadı')
+      }
+      
+      return data
+    } catch (err) {
+      console.error('Ban user error:', err)
+      throw err
+    }
+  },
+
+  async unbanUser(id) {
+    try {
+      const res = await fetch(`${API_URL}/users/${id}/unban`, {
+        method: 'PUT',
+        headers: withAuth()
+      })
+      
+      const data = await safeJson(res)
+      
+      if (!res.ok) {
+        throw new Error(data.message || 'Kullanıcı yasağı kaldırılamadı')
+      }
+      
+      return data
+    } catch (err) {
+      console.error('Unban user error:', err)
+      throw err
+    }
+  },
+
+  // Settings
+  async getSettings() {
+    try {
+      const res = await fetch(`${API_URL}/settings`, {
+        headers: withAuth()
+      })
+      
+      if (!res.ok) {
+        const data = await safeJson(res)
+        throw new Error(data.message || 'Ayarlar yüklenemedi')
+      }
+      
+      return await safeJson(res)
+    } catch (err) {
+      console.error('Get settings error:', err)
+      throw err
+    }
+  },
+
+  async updateSettings(settingsData) {
+    try {
+      const res = await fetch(`${API_URL}/settings`, {
+        method: 'PUT',
+        headers: { ...withAuth(), 'Content-Type': 'application/json' },
+        body: JSON.stringify(settingsData)
+      })
+      
+      const data = await safeJson(res)
+      
+      if (!res.ok) {
+        throw new Error(data.message || 'Ayarlar güncellenemedi')
+      }
+      
+      return data
+    } catch (err) {
+      console.error('Update settings error:', err)
+      throw err
+    }
+  },
+
+  async clearCache() {
+    try {
+      const res = await fetch(`${API_URL}/settings/clear-cache`, {
+        method: 'POST',
+        headers: withAuth()
+      })
+      
+      if (!res.ok) {
+        const data = await safeJson(res)
+        throw new Error(data.message || 'Önbellek temizlenemedi')
+      }
+      
+      return await safeJson(res)
+    } catch (err) {
+      console.error('Clear cache error:', err)
+      throw err
+    }
+  },
+
+  async resetSettings() {
+    try {
+      const res = await fetch(`${API_URL}/settings/reset`, {
+        method: 'POST',
+        headers: withAuth()
+      })
+      
+      if (!res.ok) {
+        const data = await safeJson(res)
+        throw new Error(data.message || 'Ayarlar sıfırlanamadı')
+      }
+      
+      return await safeJson(res)
+    } catch (err) {
+      console.error('Reset settings error:', err)
+      throw err
+    }
+  },
+
+  async exportSettings() {
+    try {
+      const res = await fetch(`${API_URL}/settings/export`, {
+        headers: withAuth()
+      })
+      
+      if (!res.ok) {
+        const data = await safeJson(res)
+        throw new Error(data.message || 'Ayarlar dışa aktarılamadı')
+      }
+      
+      return await safeJson(res)
+    } catch (err) {
+      console.error('Export settings error:', err)
+      throw err
+    }
+  },
+
+  // File Upload
+  async uploadImage(file) {
+    if (!file) {
+      throw new Error('Dosya seçilmedi')
+    }
+    
+    // Validate file type
+    const isValidType = await validateFileType(file)
+    if (!isValidType) {
+      throw new Error('Geçersiz dosya türü. Sadece resim dosyaları kabul edilir.')
+    }
+    
+    // Check file size (5MB limit)
+    if (file.size > 5 * 1024 * 1024) {
+      throw new Error('Dosya boyutu 5MB\'dan büyük olamaz')
+    }
+    
+    try {
+      const formData = new FormData()
+      formData.append('file', file)  // Backend 'file' bekliyor, 'image' değil
+      
+      const res = await fetch(`${API_URL}/haber/upload-image`, {  // Doğru endpoint
+        method: 'POST',
+        headers: withAuth(),
+        body: formData
+      })
+      
+      const data = await safeJson(res)
+      
+      if (!res.ok) {
+        throw new Error(data.message || 'Dosya yüklenemedi')
+      }
+      
+      return data
+    } catch (err) {
+      console.error('Upload image error:', err)
+      throw err
+    }
+  },
+
+  // Statistics
+  async getStats() {
+    try {
+      const res = await fetch(`${API_URL}/admin/stats`, {
+        headers: withAuth()
+      })
+      
+      if (!res.ok) {
+        const data = await safeJson(res)
+        throw new Error(data.message || 'İstatistikler yüklenemedi')
+      }
+      
+      return await safeJson(res)
+    } catch (err) {
+      console.error('Get stats error:', err)
+      throw err
+    }
+  },
+
+  // Search
+  async search(query, filters = {}) {
+    try {
+      const params = new URLSearchParams({ q: query, ...filters })
+      const res = await fetch(`${API_URL}/search?${params}`)
+      
+      if (!res.ok) {
+        const data = await safeJson(res)
+        throw new Error(data.message || 'Arama başarısız')
+      }
+      
+      return await safeJson(res)
+    } catch (err) {
+      console.error('Search error:', err)
+      throw err
+    }
+  },
+
+  // Generic HTTP methods for flexibility
+  async get(endpoint) {
+    try {
+      const url = endpoint.startsWith('/') ? `${API_URL}${endpoint}` : `${API_URL}/${endpoint}`
+      const res = await fetch(url, { headers: withAuth() })
+      if (!res.ok) {
+        const data = await safeJson(res)
+        throw new Error(data.message || "Request failed")
+      }
+      return await safeJson(res)
+    } catch (err) {
+      console.error('GET request error:', err)
+      throw err
+    }
+  },
+
+  async post(endpoint, data) {
+    try {
+      const url = endpoint.startsWith('/') ? `${API_URL}${endpoint}` : `${API_URL}/${endpoint}`
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { ...withAuth(), 'Content-Type': 'application/json' },
+        body: JSON.stringify(data)
+      })
+      if (!res.ok) {
+        const responseData = await safeJson(res)
+        throw new Error(responseData.message || "Request failed")
+      }
+      return await safeJson(res)
+    } catch (err) {
+      console.error('POST request error:', err)
+      throw err
+    }
+  },
+
+  async put(endpoint, data) {
+    try {
+      const url = endpoint.startsWith('/') ? `${API_URL}${endpoint}` : `${API_URL}/${endpoint}`
+      const res = await fetch(url, {
+        method: 'PUT',
+        headers: { ...withAuth(), 'Content-Type': 'application/json' },
+        body: JSON.stringify(data)
+      })
+      if (!res.ok) {
+        const responseData = await safeJson(res)
+        throw new Error(responseData.message || "Request failed")
+      }
+      return await safeJson(res)
+    } catch (err) {
+      console.error('PUT request error:', err)
+      throw err
+    }
+  },
+
+  async delete(endpoint) {
+    try {
+      const url = endpoint.startsWith('/') ? `${API_URL}${endpoint}` : `${API_URL}/${endpoint}`
+      const res = await fetch(url, {
+        method: 'DELETE',
+        headers: withAuth()
+      })
+      if (!res.ok) {
+        const data = await safeJson(res)
+        throw new Error(data.message || "Request failed")
+      }
+      return await safeJson(res)
+    } catch (err) {
+      console.error('DELETE request error:', err)
+      throw err
+    }
+  },
+
+  // Token management methods
+  setToken(token) {
+    try {
+      setCookie('token', token, 7)
+      return true
+    } catch (error) {
+      console.error('Error setting token:', error)
+      return false
+    }
+  },
+
+  getToken() {
+    return getCookie('token')
+  },
+
+  getUserFromToken() {
+    try {
+      const token = getToken()
+      if (!token) return null
+      
+      const payload = JSON.parse(atob(token.split('.')[1]))
+      return {
+        id: payload.userId || payload.id,
+        email: payload.email,
+        username: payload.username,
+        role: payload.role
+      }
+    } catch (error) {
+      console.error('Error parsing token:', error)
+      return null
+    }
+  },
+
+  // Newsletter Management
+  async subscribeNewsletter(email) {
+    try {
+      const res = await fetch(`${API_URL}/newsletter/subscribe`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email })
+      })
+      
+      const data = await safeJson(res)
+      
+      if (!res.ok) {
+        throw new Error(data.message || 'Newsletter aboneliği başarısız')
+      }
+      
+      return data
+    } catch (err) {
+      console.error('Newsletter subscribe error:', err)
+      throw err
+    }
+  },
+
+  async unsubscribeNewsletter(email) {
+    try {
+      const res = await fetch(`${API_URL}/newsletter/unsubscribe`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email })
+      })
+      
+      const data = await safeJson(res)
+      
+      if (!res.ok) {
+        throw new Error(data.message || 'Newsletter aboneliği iptal edilemedi')
+      }
+      
+      return data
+    } catch (err) {
+      console.error('Newsletter unsubscribe error:', err)
+      throw err
+    }
+  },
+
+  async getNewsletterSubscribers() {
+    try {
+      return await this.get('/newsletter/subscribers')
+    } catch (err) {
+      console.error('Get newsletter subscribers error:', err)
+      throw err
+    }
+  },
+
+  async sendNewsletter(newsletterData) {
+    try {
+      const res = await fetch(`${API_URL}/newsletter/send`, {
+        method: 'POST',
+        headers: { ...withAuth(), 'Content-Type': 'application/json' },
+        body: JSON.stringify(newsletterData)
+      })
+      
+      const data = await safeJson(res)
+      
+      if (!res.ok) {
+        throw new Error(data.message || 'Newsletter gönderilemedi')
+      }
+      
+      return data
+    } catch (err) {
+      console.error('Send newsletter error:', err)
+      throw err
+    }
+  },
+
+  // Contact Form
+  async submitContactForm(contactData) {
+    try {
+      const res = await fetch(`${API_URL}/contact`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(contactData)
+      })
+      
+      const data = await safeJson(res)
+      
+      if (!res.ok) {
+        throw new Error(data.message || 'İletişim formu gönderilemedi')
+      }
+      
+      return data
+    } catch (err) {
+      console.error('Submit contact form error:', err)
+      throw err
+    }
+  },
+
+  // Analytics
+  async getAnalytics(params = {}) {
+    try {
+      const queryString = new URLSearchParams(params).toString()
+      const endpoint = `/analytics${queryString ? '?' + queryString : ''}`
+      return await this.get(endpoint)
+    } catch (err) {
+      console.error('Get analytics error:', err)
+      throw err
+    }
+  },
+
+  async trackView(newsId) {
+    try {
+      const res = await fetch(`${API_URL}/analytics/view`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ newsId })
+      })
+      
+      const data = await safeJson(res)
+      
+      if (!res.ok) {
+        throw new Error(data.message || 'Görüntüleme kaydedilemedi')
+      }
+      
+      return data
+    } catch (err) {
+      console.error('Track view error:', err)
+      throw err
+    }
+  },
+
+  // Author Management
+  async getAuthors() {
+    try {
+      return await this.get('/authors')
+    } catch (err) {
+      console.error('Get authors error:', err)
+      throw err
+    }
+  },
+
+  async getAuthorById(id) {
+    try {
+      return await this.get(`/authors/${id}`)
+    } catch (err) {
+      console.error('Get author by id error:', err)
+      throw err
+    }
+  },
+
+  async getAuthorProfileById(authorId) {
+    try {
+      return await this.get(`/authors/profile/id/${authorId}`)
+    } catch (err) {
+      console.error('Get author profile by id error:', err)
+      throw err
+    }
+  },
+
+  async getNewsByAuthor(authorId, params = {}) {
+    try {
+      const queryString = new URLSearchParams(params).toString()
+      const endpoint = `/authors/${authorId}/haber${queryString ? '?' + queryString : ''}`
+      return await this.get(endpoint)
+    } catch (err) {
+      console.error('Get news by author error:', err)
+      throw err
+    }
+  }
+}
+
+export default api

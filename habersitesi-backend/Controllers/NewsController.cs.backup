@@ -1,0 +1,606 @@
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Authorization;
+using habersitesi_backend.Models;
+using Microsoft.EntityFrameworkCore;
+using System.Security.Claims;
+using System.Text.RegularExpressions;
+using habersitesi_backend.Dtos;
+
+[ApiController]
+[Route("api/news")]
+public class NewsController : ControllerBase
+{
+    private readonly AppDbContext _context;
+    private readonly IFileService _fileService;
+
+    public NewsController(AppDbContext context, IFileService fileService)
+    {
+        _context = context;
+        _fileService = fileService;
+    }
+
+    [HttpGet]
+    public async Task<IActionResult> GetAll(
+        [FromQuery] string? category, 
+        [FromQuery] string? q,
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 10,
+        [FromQuery] bool? featured = null,
+        [FromQuery] string? sortBy = "date")
+    {
+        if (page < 1) page = 1;
+        if (pageSize < 1 || pageSize > 50) pageSize = 10;
+
+        var query = _context.News.Include(n => n.Comments.Where(c => c.Approved)).AsQueryable();
+        
+        // Filters
+        if (!string.IsNullOrEmpty(category))
+            query = query.Where(n => n.Category.ToLower() == category.ToLower());
+        
+        if (!string.IsNullOrEmpty(q))
+            query = query.Where(n => n.Title.Contains(q) || n.Content.Contains(q) || n.Summary.Contains(q));
+        
+        if (featured.HasValue)
+            query = query.Where(n => n.Featured == featured.Value);
+
+        // Sorting
+        query = sortBy?.ToLower() switch
+        {
+            "title" => query.OrderBy(n => n.Title),
+            "category" => query.OrderBy(n => n.Category).ThenByDescending(n => n.Date),
+            "featured" => query.OrderByDescending(n => n.Featured).ThenByDescending(n => n.Date),
+            _ => query.OrderByDescending(n => n.Date)
+        };
+
+        var totalCount = await query.CountAsync();
+        var totalPages = (int)Math.Ceiling(totalCount / (double)pageSize);
+
+        var news = await query
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
+            .Select(n => new NewsListDto
+            {
+                Id = n.Id,
+                Title = n.Title,
+                Summary = n.Summary,
+                Image = n.Image,
+                Category = n.Category,
+                Date = n.Date,
+                Author = n.Author,
+                Featured = n.Featured,
+                Tags = n.Tags,
+                CommentCount = n.Comments.Count()
+            })
+            .ToListAsync();
+
+        return Ok(new
+        {
+            data = news,
+            pagination = new
+            {
+                currentPage = page,
+                pageSize,
+                totalCount,
+                totalPages,
+                hasNext = page < totalPages,
+                hasPrevious = page > 1
+            }
+        });
+    }    // Gelişmiş haber arama ve filtreleme endpoint'i
+    [HttpGet("search")]
+    public async Task<IActionResult> Search(
+        [FromQuery] string? q, 
+        [FromQuery] string? category,
+        [FromQuery] string? author,
+        [FromQuery] string? tags,
+        [FromQuery] DateTime? startDate,
+        [FromQuery] DateTime? endDate,
+        [FromQuery] bool? featured,
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 10,
+        [FromQuery] string? sortBy = "relevance")
+    {
+        if (page < 1) page = 1;
+        if (pageSize < 1 || pageSize > 50) pageSize = 10;
+
+        var query = _context.News.Include(n => n.Comments.Where(c => c.Approved)).AsQueryable();
+        
+        // Metin araması (başlık, içerik, özet, etiketler)
+        if (!string.IsNullOrEmpty(q))
+        {
+            var searchTerm = q.ToLower();
+            query = query.Where(n => 
+                n.Title.ToLower().Contains(searchTerm) || 
+                (n.Content != null && n.Content.ToLower().Contains(searchTerm)) || 
+                (n.Summary != null && n.Summary.ToLower().Contains(searchTerm)) ||
+                (n.Tags != null && n.Tags.ToLower().Contains(searchTerm)));
+        }
+        
+        // Kategori filtresi
+        if (!string.IsNullOrEmpty(category))
+            query = query.Where(n => n.Category.ToLower() == category.ToLower());
+            
+        // Yazar filtresi
+        if (!string.IsNullOrEmpty(author))
+            query = query.Where(n => n.Author != null && n.Author.ToLower().Contains(author.ToLower()));
+            
+        // Etiket filtresi
+        if (!string.IsNullOrEmpty(tags))
+        {
+            var tagList = tags.Split(',').Select(t => t.Trim().ToLower());
+            query = query.Where(n => n.Tags != null && tagList.Any(tag => n.Tags.ToLower().Contains(tag)));
+        }
+        
+        // Tarih aralığı filtresi
+        if (startDate.HasValue)
+            query = query.Where(n => n.Date >= startDate.Value);
+        if (endDate.HasValue)
+            query = query.Where(n => n.Date <= endDate.Value);
+            
+        // Manşet filtresi
+        if (featured.HasValue)
+            query = query.Where(n => n.Featured == featured.Value);
+
+        // Sıralama
+        query = sortBy?.ToLower() switch
+        {
+            "date" => query.OrderByDescending(n => n.Date),
+            "title" => query.OrderBy(n => n.Title),
+            "author" => query.OrderBy(n => n.Author),
+            "comments" => query.OrderByDescending(n => n.Comments != null ? n.Comments.Count() : 0),
+            "relevance" => !string.IsNullOrEmpty(q) 
+                ? query.OrderByDescending(n => 
+                    (n.Title.ToLower().Contains(q.ToLower()) ? 3 : 0) +
+                    (n.Summary != null && n.Summary.ToLower().Contains(q.ToLower()) ? 2 : 0) +
+                    (n.Content != null && n.Content.ToLower().Contains(q.ToLower()) ? 1 : 0))
+                : query.OrderByDescending(n => n.Date),
+            _ => query.OrderByDescending(n => n.Date)
+        };
+
+        var totalCount = await query.CountAsync();
+        var totalPages = (int)Math.Ceiling(totalCount / (double)pageSize);
+
+        var news = await query
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
+            .Select(n => new NewsListDto
+            {
+                Id = n.Id,
+                Title = n.Title,
+                Summary = n.Summary,
+                Image = n.Image,
+                Category = n.Category,
+                Date = n.Date,
+                Author = n.Author,
+                Featured = n.Featured,
+                Tags = n.Tags,
+                CommentCount = n.Comments != null ? n.Comments.Count() : 0
+            })
+            .ToListAsync();
+
+        return Ok(new
+        {
+            data = news,
+            pagination = new
+            {
+                currentPage = page,
+                pageSize,
+                totalCount,
+                totalPages,
+                hasNext = page < totalPages,
+                hasPrevious = page > 1
+            },
+            searchQuery = q,
+            filters = new
+            {
+                category,
+                author,
+                tags,
+                startDate,
+                endDate,
+                featured,
+                sortBy
+            }
+        });
+    }
+
+    [HttpGet("{id}")]
+    public async Task<IActionResult> GetById(int id)
+    {
+        var news = await _context.News
+            .Include(n => n.Comments.Where(c => c.Approved))
+            .Select(n => new NewsDetailDto
+            {
+                Id = n.Id,
+                Title = n.Title,
+                Summary = n.Summary,
+                Image = n.Image,
+                Category = n.Category,
+                Date = n.Date,
+                Author = n.Author,
+                Content = n.Content,
+                Featured = n.Featured,
+                Tags = n.Tags,
+                Comments = n.Comments
+                    .Where(c => c.Approved)
+                    .OrderByDescending(c => c.CreatedAt)
+                    .Select(c => new CommentDto
+                    {
+                        Id = c.Id,
+                        User = c.User,
+                        Text = c.Text,
+                        Approved = c.Approved,
+                        CreatedAt = c.CreatedAt
+                    }).ToList(),
+                CommentCount = n.Comments.Count()
+            })
+            .FirstOrDefaultAsync(n => n.Id == id);
+
+        if (news == null) 
+            return NotFound(new { message = "Haber bulunamadı." });
+
+        return Ok(news);
+    }
+
+    [HttpGet("featured")]
+    public async Task<IActionResult> GetFeatured([FromQuery] int count = 5)
+    {
+        if (count < 1 || count > 20) count = 5;
+
+        var featuredNews = await _context.News
+            .Where(n => n.Featured)
+            .OrderByDescending(n => n.Date)
+            .Take(count)
+            .Select(n => new NewsListDto
+            {
+                Id = n.Id,
+                Title = n.Title,
+                Summary = n.Summary,
+                Image = n.Image,
+                Category = n.Category,
+                Date = n.Date,
+                Author = n.Author,
+                Featured = n.Featured,
+                Tags = n.Tags,
+                CommentCount = n.Comments.Count(c => c.Approved)
+            })
+            .ToListAsync();
+
+        return Ok(featuredNews);
+    }
+
+    [HttpGet("by-category/{category}")]
+    public async Task<IActionResult> GetByCategory(
+        string category, 
+        [FromQuery] int page = 1, 
+        [FromQuery] int pageSize = 10)
+    {
+        if (page < 1) page = 1;
+        if (pageSize < 1 || pageSize > 50) pageSize = 10;
+
+        var categoryExists = await _context.Categories
+            .AnyAsync(c => c.Name.ToLower() == category.ToLower());
+        
+        if (!categoryExists)
+            return NotFound(new { message = "Kategori bulunamadı." });
+
+        var query = _context.News
+            .Include(n => n.Comments.Where(c => c.Approved))
+            .Where(n => n.Category.ToLower() == category.ToLower());
+
+        var totalCount = await query.CountAsync();
+        var totalPages = (int)Math.Ceiling(totalCount / (double)pageSize);
+
+        var news = await query
+            .OrderByDescending(n => n.Date)
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
+            .Select(n => new NewsListDto
+            {
+                Id = n.Id,
+                Title = n.Title,
+                Summary = n.Summary,
+                Image = n.Image,
+                Category = n.Category,
+                Date = n.Date,
+                Author = n.Author,
+                Featured = n.Featured,
+                Tags = n.Tags,
+                CommentCount = n.Comments.Count()
+            })
+            .ToListAsync();
+
+        return Ok(new
+        {
+            category,
+            data = news,
+            pagination = new
+            {
+                currentPage = page,
+                pageSize,
+                totalCount,
+                totalPages,
+                hasNext = page < totalPages,
+                hasPrevious = page > 1
+            }
+        });
+    }
+
+    [Authorize(Roles = "admin,author")]
+    [HttpPost]
+    public async Task<IActionResult> Create([FromBody] NewsCreateDto dto)
+    {
+        if (!ModelState.IsValid)
+            return BadRequest(ModelState);
+
+        if (string.IsNullOrWhiteSpace(dto.Title) || dto.Title.Length < 5)
+            return BadRequest(new { message = "Başlık en az 5 karakter olmalıdır." });
+
+        if (string.IsNullOrWhiteSpace(dto.Category))
+            return BadRequest(new { message = "Kategori zorunludur." });
+
+        // Check if category exists
+        var categoryExists = await _context.Categories
+            .AnyAsync(c => c.Name.ToLower() == dto.Category.ToLower());
+        
+        if (!categoryExists)
+            return BadRequest(new { message = "Geçersiz kategori." });
+
+        // Check for duplicate title
+        var titleExists = await _context.News
+            .AnyAsync(n => n.Title.ToLower() == dto.Title.ToLower());
+        
+        if (titleExists)
+            return BadRequest(new { message = "Bu başlıkta bir haber zaten mevcut." });
+
+        var author = User.FindFirstValue(ClaimTypes.Name);
+        var news = new News
+        {
+            Title = dto.Title.Trim(),
+            Summary = dto.Summary?.Trim(),
+            Image = dto.Image,
+            Category = dto.Category.Trim(),
+            Content = dto.Content,
+            Featured = User.IsInRole("admin") ? dto.Featured : false, // Only admin can set featured
+            Date = DateTime.UtcNow,
+            Author = author,
+            Tags = dto.Tags?.Trim()
+        };
+
+        if (!string.IsNullOrEmpty(news.Image) && news.Image.StartsWith("http"))
+            news.Image = await _fileService.DownloadImageAsync(news.Image, HttpContext);
+
+        if (!string.IsNullOrEmpty(news.Content))
+            news.Content = await _fileService.SaveBase64ImagesAndUpdateHtml(news.Content, HttpContext);
+
+        _context.News.Add(news);
+        await _context.SaveChangesAsync();
+        
+        return CreatedAtAction(nameof(GetById), new { id = news.Id }, new { news.Id, message = "Haber başarıyla oluşturuldu." });
+    }
+
+    [Authorize(Roles = "admin,author")]
+    [HttpPut("{id}")]
+    public async Task<IActionResult> Update(int id, [FromBody] NewsUpdateDto dto)
+    {
+        if (!ModelState.IsValid)
+            return BadRequest(ModelState);
+
+        var news = await _context.News.FindAsync(id);
+        if (news == null) 
+            return NotFound(new { message = "Haber bulunamadı." });
+
+        var currentUser = User.FindFirstValue(ClaimTypes.Name);
+        var isAdmin = User.IsInRole("admin");
+
+        // Only admin or the author can update
+        if (!isAdmin && news.Author != currentUser)
+            return Forbid();
+
+        if (string.IsNullOrWhiteSpace(dto.Title) || dto.Title.Length < 5)
+            return BadRequest(new { message = "Başlık en az 5 karakter olmalıdır." });
+
+        if (string.IsNullOrWhiteSpace(dto.Category))
+            return BadRequest(new { message = "Kategori zorunludur." });
+
+        // Check if category exists
+        var categoryExists = await _context.Categories
+            .AnyAsync(c => c.Name.ToLower() == dto.Category.ToLower());
+        
+        if (!categoryExists)
+            return BadRequest(new { message = "Geçersiz kategori." });
+
+        // Check for duplicate title (excluding current news)
+        var titleExists = await _context.News
+            .AnyAsync(n => n.Id != id && n.Title.ToLower() == dto.Title.ToLower());
+        
+        if (titleExists)
+            return BadRequest(new { message = "Bu başlıkta bir haber zaten mevcut." });
+
+        news.Title = dto.Title.Trim();
+        news.Summary = dto.Summary?.Trim();
+        news.Category = dto.Category.Trim();
+        news.Featured = isAdmin ? dto.Featured : news.Featured; // Only admin can change featured status
+        news.Tags = dto.Tags?.Trim();
+
+        if (!string.IsNullOrEmpty(dto.Image) && dto.Image.StartsWith("http"))
+            news.Image = await _fileService.DownloadImageAsync(dto.Image, HttpContext);
+        else if (!string.IsNullOrEmpty(dto.Image))
+            news.Image = dto.Image;
+
+        if (!string.IsNullOrEmpty(dto.Content))
+            news.Content = await _fileService.SaveBase64ImagesAndUpdateHtml(dto.Content, HttpContext);
+        else
+            news.Content = dto.Content;
+
+        await _context.SaveChangesAsync();
+        
+        return Ok(new { news.Id, message = "Haber başarıyla güncellendi." });
+    }
+
+    [Authorize(Roles = "admin,author")]
+    [HttpDelete("{id}")]
+    public async Task<IActionResult> Delete(int id)
+    {
+        var news = await _context.News.Include(n => n.Comments).FirstOrDefaultAsync(n => n.Id == id);
+        if (news == null) 
+            return NotFound(new { message = "Haber bulunamadı." });
+
+        var currentUser = User.FindFirstValue(ClaimTypes.Name);
+        var isAdmin = User.IsInRole("admin");
+
+        // Only admin or the author can delete
+        if (!isAdmin && news.Author != currentUser)
+            return Forbid();
+
+        // Delete associated comments first
+        if (news.Comments?.Any() == true)
+            _context.Comments.RemoveRange(news.Comments);
+
+        _context.News.Remove(news);
+        await _context.SaveChangesAsync();
+        
+        return Ok(new { success = true, message = "Haber ve ilgili yorumlar başarıyla silindi." });
+    }
+
+    [Authorize(Roles = "author")]
+    [HttpPost("upload-image")]
+    public async Task<IActionResult> UploadImage([FromForm] IFormFile file)
+    {
+        var result = await _fileService.UploadImageAsync(file, HttpContext);
+        if (!result.Success)
+            return BadRequest(new { message = result.Message });
+        return Ok(new { url = result.Url });
+    }
+
+    [HttpPost("upload-multiple-images")]
+    [Authorize(Roles = "author,admin")]
+    public async Task<IActionResult> UploadMultipleImages(IFormFileCollection files)
+    {
+        var result = await _fileService.UploadMultipleImagesAsync(files, HttpContext);
+        if (!result.Success)
+            return BadRequest(new { message = result.Message });
+        return Ok(new { urls = result.Urls });
+    }
+
+    [HttpPost("resize-image")]
+    [Authorize(Roles = "author,admin")]
+    public async Task<IActionResult> ResizeImage(IFormFile file, [FromQuery] int width = 800, [FromQuery] int height = 600)
+    {
+        var result = await _fileService.ResizeImageAsync(file, width, height, HttpContext);
+        if (!result.Success)
+            return BadRequest(new { message = result.Message });
+        return Ok(new { url = result.Url });
+    }    [HttpGet("gallery")]
+    public async Task<IActionResult> GetImageGallery([FromQuery] int page = 1, [FromQuery] int pageSize = 20)
+    {
+        try 
+        {
+            var wwwrootPath = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot");
+            var uploadsPath = Path.Combine(wwwrootPath, "uploads");
+            if (!Directory.Exists(uploadsPath))
+                return Ok(new { images = new List<object>(), totalCount = 0 });
+
+            var imageFiles = Directory.GetFiles(uploadsPath)
+                .Where(f => new[] { ".jpg", ".jpeg", ".png", ".gif", ".webp" }
+                    .Contains(Path.GetExtension(f).ToLowerInvariant()))
+                .OrderByDescending(f => new FileInfo(f).CreationTime)
+                .Skip((page - 1) * pageSize)
+                .Take(pageSize)
+                .Select(f => new
+                {
+                    name = Path.GetFileName(f),
+                    url = $"{Request.Scheme}://{Request.Host}/uploads/{Path.GetFileName(f)}",
+                    size = new FileInfo(f).Length,
+                    createdAt = new FileInfo(f).CreationTime
+                })
+                .ToList();
+
+            var totalCount = Directory.GetFiles(uploadsPath)
+                .Count(f => new[] { ".jpg", ".jpeg", ".png", ".gif", ".webp" }
+                    .Contains(Path.GetExtension(f).ToLowerInvariant()));
+
+            return Ok(new { images = imageFiles, totalCount, page, pageSize });
+        }
+        catch (Exception ex)
+        {
+            return BadRequest(new { message = "Galeri yüklenirken hata oluştu: " + ex.Message });
+        }
+    }
+
+    [HttpPost("{id}/share")]
+    public async Task<IActionResult> ShareNews(int id, [FromBody] ShareRequest request)
+    {
+        var news = await _context.News.FindAsync(id);
+        if (news == null)
+            return NotFound(new { message = "Haber bulunamadı" });
+
+        // Track social media shares
+        var shareData = new 
+        {
+            newsId = id,
+            platform = request.Platform,
+            shareDate = DateTime.UtcNow,
+            userAgent = Request.Headers["User-Agent"].ToString()
+        };
+
+        // Log share activity (you can implement a proper tracking system)
+        // _context.SocialShares.Add(new SocialShare { ... });
+        // await _context.SaveChangesAsync();
+
+        var baseUrl = $"{Request.Scheme}://{Request.Host}";
+        var newsUrl = $"{baseUrl}/news/{id}";
+        
+        var shareUrls = new Dictionary<string, string>
+        {
+            ["facebook"] = $"https://www.facebook.com/sharer/sharer.php?u={Uri.EscapeDataString(newsUrl)}",
+            ["twitter"] = $"https://twitter.com/intent/tweet?url={Uri.EscapeDataString(newsUrl)}&text={Uri.EscapeDataString(news.Title)}",
+            ["whatsapp"] = $"https://wa.me/?text={Uri.EscapeDataString($"{news.Title} - {newsUrl}")}",
+            ["linkedin"] = $"https://www.linkedin.com/sharing/share-offsite/?url={Uri.EscapeDataString(newsUrl)}",
+            ["telegram"] = $"https://t.me/share/url?url={Uri.EscapeDataString(newsUrl)}&text={Uri.EscapeDataString(news.Title)}"
+        };
+
+        if (!shareUrls.ContainsKey(request.Platform.ToLower()))
+            return BadRequest(new { message = "Desteklenmeyen platform" });
+
+        return Ok(new { 
+            shareUrl = shareUrls[request.Platform.ToLower()],
+            newsTitle = news.Title,
+            newsUrl = newsUrl
+        });
+    }
+
+    [HttpGet("{id}/share-count")]
+    public async Task<IActionResult> GetShareCount(int id)
+    {
+        var news = await _context.News.FindAsync(id);
+        if (news == null)
+            return NotFound(new { message = "Haber bulunamadı" });
+
+        // Mock share counts (implement proper tracking in production)
+        var random = new Random(id); // Deterministic for demo
+        var shareCounts = new 
+        {
+            facebook = random.Next(0, 100),
+            twitter = random.Next(0, 50),
+            whatsapp = random.Next(0, 200),
+            linkedin = random.Next(0, 30),
+            telegram = random.Next(0, 40),
+            total = 0
+        };
+
+        var total = shareCounts.facebook + shareCounts.twitter + shareCounts.whatsapp + 
+                   shareCounts.linkedin + shareCounts.telegram;
+
+        return Ok(new { 
+            shareCounts = new {
+                shareCounts.facebook,
+                shareCounts.twitter,
+                shareCounts.whatsapp,
+                shareCounts.linkedin,
+                shareCounts.telegram,
+                total
+            }
+        });
+    }
+}
