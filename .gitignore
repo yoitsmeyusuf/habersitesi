@@ -1,0 +1,28 @@
+# Build artifacts
+haber-sitesi-frontend/dist/
+haber-sitesi-frontend/node_modules/
+habersitesi-backend/bin/
+habersitesi-backend/obj/
+
+# Development files (temporary)
+haber-sitesi-frontend/index.html.backup
+habersitesi-backend/.env
+*.env.local
+
+# IDE and OS files
+.vscode/
+.vs/
+*.suo
+*.user
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
+
+# Runtime data
+pids
+*.pid
+*.seed
+*.pid.lock
