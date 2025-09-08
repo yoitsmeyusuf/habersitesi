@@ -303,7 +303,7 @@ const api = {
     try {
       const res = await fetch(`${API_URL}/kimlik/profil`, {
         method: 'PUT',
-        headers: { ...withAuth(), 'Content-Type': 'application/json' },
+        headers: { ...(await withAuthAndCsrf()), 'Content-Type': 'application/json' },
         body: JSON.stringify(profileData)
       })
       
@@ -324,7 +324,7 @@ const api = {
     try {
       const res = await fetch(`${API_URL}/kimlik/password`, {
         method: 'PUT',
-        headers: { ...withAuth(), 'Content-Type': 'application/json' },
+        headers: { ...(await withAuthAndCsrf()), 'Content-Type': 'application/json' },
         body: JSON.stringify(passwordData)
       })
       
@@ -442,7 +442,7 @@ const api = {
     try {
             const res = await fetch(`${API_URL}/kimlik/profil/avatar-yukle`, {
         method: 'POST',
-        headers: withAuth(),
+        headers: await withAuthAndCsrf(),
         body: formData
       })
       
@@ -880,7 +880,7 @@ const api = {
     try {
       const res = await fetch(`${API_URL}/kategoriler`, {
         method: 'POST',
-        headers: { ...withAuth(), 'Content-Type': 'application/json' },
+        headers: { ...(await withAuthAndCsrf()), 'Content-Type': 'application/json' },
         body: JSON.stringify(categoryData)
       })
       
@@ -906,7 +906,7 @@ const api = {
     try {
       const res = await fetch(`${API_URL}/kategoriler/${id}`, {
         method: 'PUT',
-        headers: { ...withAuth(), 'Content-Type': 'application/json' },
+        headers: { ...(await withAuthAndCsrf()), 'Content-Type': 'application/json' },
         body: JSON.stringify(categoryData)
       })
       
@@ -949,7 +949,7 @@ const api = {
       // Şimdi kategoriyi sil
       const res = await fetch(`${API_URL}/kategoriler/${id}`, {
         method: 'DELETE',
-        headers: withAuth()
+        headers: await withAuthAndCsrf()
       })
       
       if (!res.ok) {

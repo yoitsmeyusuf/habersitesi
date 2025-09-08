@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Antiforgery;
 using habersitesi_backend.Models;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.AspNetCore.Authorization;
@@ -11,11 +12,13 @@ public class CategoriesController : ControllerBase
 {
     private readonly AppDbContext _context;
     private readonly ICacheService _cache;
+    private readonly IAntiforgery _antiforgery;
     
-    public CategoriesController(AppDbContext context, ICacheService cache)
+    public CategoriesController(AppDbContext context, ICacheService cache, IAntiforgery antiforgery)
     {
         _context = context;
         _cache = cache;
+        _antiforgery = antiforgery;
     }
 
     [HttpGet]
@@ -95,6 +98,9 @@ public class CategoriesController : ControllerBase
     [HttpPost]
     public async Task<IActionResult> AddCategory([FromBody] CategoryCreateDto dto)
     {
+        // Validate CSRF token
+        await _antiforgery.ValidateRequestAsync(HttpContext);
+        
         if (!ModelState.IsValid)
             return BadRequest(ModelState);
 

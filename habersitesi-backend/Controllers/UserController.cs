@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Antiforgery;
 using habersitesi_backend.Models;
 using Microsoft.EntityFrameworkCore;
 using System.Security.Claims;
@@ -11,10 +12,12 @@ using habersitesi_backend.Dtos;
 public class UserController : ControllerBase
 {
     private readonly AppDbContext _context;
+    private readonly IAntiforgery _antiforgery;
 
-    public UserController(AppDbContext context)
+    public UserController(AppDbContext context, IAntiforgery antiforgery)
     {
         _context = context;
+        _antiforgery = antiforgery;
     }
 
     [HttpGet]
@@ -85,6 +88,9 @@ public class UserController : ControllerBase
     [HttpPut("{id}/role")]
     public async Task<IActionResult> UpdateUserRole(int id, [FromBody] UpdateUserRoleDto dto)
     {
+        // Validate CSRF token
+        await _antiforgery.ValidateRequestAsync(HttpContext);
+        
         if (!ModelState.IsValid)
             return BadRequest(ModelState);
 
@@ -197,6 +203,9 @@ public class UserController : ControllerBase
     [HttpDelete("{username}")]
     public async Task<IActionResult> DeleteUser(string username)
     {
+        // Validate CSRF token
+        await _antiforgery.ValidateRequestAsync(HttpContext);
+        
         var user = await _context.Users.FirstOrDefaultAsync(u => u.Username == username);
         if (user == null)
             return NotFound(new { message = "Kullanıcı bulunamadı." });
