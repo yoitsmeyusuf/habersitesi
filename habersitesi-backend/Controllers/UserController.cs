@@ -96,22 +96,28 @@ public class UserController : ControllerBase
         if (currentUserRole != "admin")
             return Forbid("Bu işlem için admin yetkisi gereklidir.");
 
-        var user = await _context.Users.FindAsync(id);
-        if (user == null)
+        // IDOR Protection: Enhanced authorization checks
+        var currentUser = await _context.Users.FirstOrDefaultAsync(u => u.Username == currentUserName);
+        if (currentUser == null)
+            return Unauthorized();
+
+        var targetUser = await _context.Users.FindAsync(id);
+        if (targetUser == null)
             return NotFound(new { message = "Kullanıcı bulunamadı." });
 
+        // Prevent privilege escalation attacks  
+        if (targetUser.Role == "admin" && currentUser.Role != "admin")
+            return Forbid("Yetersiz yetki.");
+
+        if (dto.Role == "admin" && currentUser.Role != "admin") 
+            return Forbid("Sadece admin kullanıcıları admin yetkisi verebilir.");
+
         // Admin kendi rolünü değiştiremez
-        if (user.Username == currentUserName)
+        if (targetUser.Username == currentUserName)
             return BadRequest(new { message = "Kendi rolünüzü değiştiremezsiniz." });
 
-        // Hedef kullanıcı admin ise, sadece diğer admin'ler değiştirebilir
-        if (user.Role == "admin" && currentUserRole != "admin")
-            return Forbid("Admin kullanıcılarının rollerini sadece admin'ler değiştirebilir.");
-
-        var validRoles = new[] { "user", "author", "admin" };
-        if (!validRoles.Contains(dto.Role))
-            return BadRequest(new { message = "Geçersiz rol." });        // Admin sayısı kontrolü - son admin'i user yapma
-        if (user.Role == "admin" && dto.Role != "admin")
+        // Admin sayısı kontrolü - son admin'i user yapma
+        if (targetUser.Role == "admin" && dto.Role != "admin")
         {
             var adminCount = await _context.Users.CountAsync(u => u.Role == "admin");
             if (adminCount <= 1)
@@ -125,15 +131,15 @@ public class UserController : ControllerBase
             using var transaction = await _context.Database.BeginTransactionAsync();
             try
             {
-                user.Role = dto.Role;
+                targetUser.Role = dto.Role;
                 await _context.SaveChangesAsync();
                 await transaction.CommitAsync();
 
                 return Ok(new { 
                     success = true, 
                     message = $"Kullanıcı rolü '{dto.Role}' olarak güncellendi.",
-                    username = user.Username,
-                    newRole = user.Role
+                    username = targetUser.Username,
+                    newRole = targetUser.Role
                 });
             }
             catch (Exception ex)

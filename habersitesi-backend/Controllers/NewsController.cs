@@ -36,7 +36,16 @@ public class NewsController : ControllerBase
         [FromQuery] bool? approved = null) // Admin için pending haberleri görmek için
     {
         if (page < 1) page = 1;
-        if (pageSize < 1 || pageSize > 50) pageSize = 10;        // Cache key için parametreleri hash'le - approved parametresi de dahil
+        if (pageSize < 1 || pageSize > 50) pageSize = 10;
+        
+        // Prevent excessive pagination that could impact performance  
+        if (page > 1000) 
+            return BadRequest(new { message = "Sayfa numarası çok büyük (maksimum: 1000)" });
+        
+        var maxRecordsPerRequest = 50000; // Global limit
+        var skipCount = (page - 1) * pageSize;
+        if (skipCount > maxRecordsPerRequest)
+            return BadRequest(new { message = "Çok fazla kayıt istendi" });        // Cache key için parametreleri hash'le - approved parametresi de dahil
         var cacheKey = $"news_list_{category}_{q}_{page}_{pageSize}_{featured}_{sortBy}_{approved}";
         
         var cachedResult = await _cache.GetAsync<object>(cacheKey);
@@ -252,12 +261,26 @@ public class NewsController : ControllerBase
                 AuthorProfilePicture = nu.User.ProfilePicture,
                 Featured = nu.News.Featured,
                 Tags = nu.News.Tags,
-                CommentCount = _context.Comments.Count(c => c.NewsId == nu.News.Id && c.Approved),
+                CommentCount = 0, // Will be filled below with bulk query to avoid N+1
                 IsApproved = nu.News.IsApproved,
                 ApprovedByUsername = nu.News.ApprovedBy != null ? nu.News.ApprovedBy.Username : null,
                 ApprovedAt = nu.News.ApprovedAt
             })
             .ToListAsync();
+
+        // Bulk load comment counts to avoid N+1 query performance issue
+        var newsIds = news.Select(n => n.Id).ToList();
+        var commentCounts = await _context.Comments
+            .Where(c => newsIds.Contains(c.NewsId) && c.Approved)
+            .GroupBy(c => c.NewsId)
+            .Select(g => new { NewsId = g.Key, Count = g.Count() })
+            .ToDictionaryAsync(x => x.NewsId, x => x.Count);
+
+        // Populate comment counts
+        foreach (var newsItem in news)
+        {
+            newsItem.CommentCount = commentCounts.GetValueOrDefault(newsItem.Id, 0);
+        }
 
         var result = new
         {

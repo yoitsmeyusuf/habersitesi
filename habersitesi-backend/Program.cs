@@ -220,8 +220,18 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(options =>
     {
         var jwtKey = Environment.GetEnvironmentVariable("Jwt__Key") 
-                   ?? builder.Configuration["Jwt:Key"] 
-                   ?? "supersecretkey";
+                   ?? builder.Configuration["Jwt:Key"];
+        
+        if (string.IsNullOrEmpty(jwtKey))
+        {
+            if (builder.Environment.IsDevelopment())
+                jwtKey = "development-key-min-32-chars-long-1234567890"; // Development fallback
+            else
+                throw new InvalidOperationException("JWT key must be configured in production");
+        }
+        
+        if (jwtKey.Length < 32)
+            throw new InvalidOperationException("JWT key must be at least 32 characters long");
         
         options.TokenValidationParameters = new TokenValidationParameters
         {
@@ -403,7 +413,7 @@ app.Use(async (context, next) =>
     if (!app.Environment.IsDevelopment())
     {
         context.Response.Headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains; preload";
-        context.Response.Headers["Content-Security-Policy"] = "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:";
+        context.Response.Headers["Content-Security-Policy"] = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; object-src 'none'; frame-ancestors 'none';";
         context.Response.Headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=(), payment=(), usb=()";
     }
     
