@@ -4,4 +4,13 @@ wwwroot/
 
 # Production Secrets
 .env.secrets
+.env
 *.log
+
+# Security - Additional sensitive files
+appsettings.Production.json
+secrets.json
+*.key
+*.pem
+*.p12
+*.pfx

@@ -1148,6 +1148,10 @@ public class NewsController : ControllerBase
     {
         if (string.IsNullOrWhiteSpace(title))
             return "haber";
+            
+        // Prevent potential DoS with very long titles
+        if (title.Length > 200)
+            title = title.Substring(0, 200);
 
         // Convert to lowercase and replace Turkish characters efficiently
         var turkishCharMap = new Dictionary<char, char>
