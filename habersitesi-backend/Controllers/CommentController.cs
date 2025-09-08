@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Antiforgery;
 using habersitesi_backend.Models;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.AspNetCore.Authorization;
@@ -17,12 +18,14 @@ public class CommentController : ControllerBase
     private readonly AppDbContext _context;
     private readonly ICacheService _cache;
     private readonly IModerationService _moderationService;
+    private readonly IAntiforgery _antiforgery;
 
-    public CommentController(AppDbContext context, ICacheService cache, IOptions<ModerationSettings> moderationOptions, IModerationService moderationService)
+    public CommentController(AppDbContext context, ICacheService cache, IOptions<ModerationSettings> moderationOptions, IModerationService moderationService, IAntiforgery antiforgery)
     {
         _context = context;
         _cache = cache;
         _moderationService = moderationService;
+        _antiforgery = antiforgery;
     }
 
     // Metin içerisindeki linkleri ve yasaklı kelimeleri temizle
@@ -176,6 +179,9 @@ public class CommentController : ControllerBase
     [HttpPost]
     public async Task<IActionResult> AddComment(int newsId, [FromBody] CommentCreateDto dto)
     {
+        // Validate CSRF token
+        await _antiforgery.ValidateRequestAsync(HttpContext);
+        
         if (!ModelState.IsValid)
             return BadRequest(ModelState);
 

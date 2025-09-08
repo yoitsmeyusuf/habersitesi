@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Antiforgery;
 using habersitesi_backend.Models;
 using Microsoft.EntityFrameworkCore;
 using System.Security.Claims;
@@ -16,13 +17,15 @@ public class NewsController : ControllerBase
     private readonly IFileService _fileService;
     private readonly ICacheService _cache;
     private readonly IRelatedNewsService _relatedNewsService;
+    private readonly IAntiforgery _antiforgery;
 
-    public NewsController(AppDbContext context, IFileService fileService, ICacheService cache, IRelatedNewsService relatedNewsService)
+    public NewsController(AppDbContext context, IFileService fileService, ICacheService cache, IRelatedNewsService relatedNewsService, IAntiforgery antiforgery)
     {
         _context = context;
         _fileService = fileService;
         _cache = cache;
         _relatedNewsService = relatedNewsService;
+        _antiforgery = antiforgery;
     }
 
     [HttpGet]
@@ -474,6 +477,9 @@ public class NewsController : ControllerBase
     [HttpPost]
     public async Task<IActionResult> Create([FromBody] NewsCreateDto dto)
     {
+        // Validate CSRF token
+        await _antiforgery.ValidateRequestAsync(HttpContext);
+        
         if (!ModelState.IsValid)
             return BadRequest(ModelState);
 
@@ -542,6 +548,9 @@ public class NewsController : ControllerBase
     [HttpPut("{id}")]
     public async Task<IActionResult> Update(int id, [FromBody] NewsUpdateDto dto)
     {
+        // Validate CSRF token
+        await _antiforgery.ValidateRequestAsync(HttpContext);
+        
         if (!ModelState.IsValid)
             return BadRequest(ModelState);
 
@@ -640,6 +649,8 @@ public class NewsController : ControllerBase
     [HttpDelete("{id}")]
     public async Task<IActionResult> Delete(int id)
     {
+        // Validate CSRF token
+        await _antiforgery.ValidateRequestAsync(HttpContext);
         var news = await _context.News.Include(n => n.Comments).FirstOrDefaultAsync(n => n.Id == id);
         if (news == null) 
             return NotFound(new { message = "Haber bulunamadı." });
@@ -694,6 +705,9 @@ public class NewsController : ControllerBase
     [HttpPost("resim-yukle")]
     public async Task<IActionResult> UploadImage([FromForm] IFormFile file)
     {
+        // Validate CSRF token
+        await _antiforgery.ValidateRequestAsync(HttpContext);
+        
         var result = await _fileService.UploadImageAsync(file, HttpContext);
         if (!result.Success)
             return BadRequest(new { message = result.Message });
