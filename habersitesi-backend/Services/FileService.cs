@@ -108,21 +108,37 @@ public class FileService : IFileService
         if (file == null || file.Length == 0)
             return (false, null, "Dosya yok");
 
-        var allowedTypes = new[] { ".jpg", ".jpeg", ".png", ".gif", ".webp" };
+        // Enhanced security: Check for dangerous file extensions
+        var dangerousExtensions = new[] { ".exe", ".bat", ".cmd", ".scr", ".com", ".pif", ".vbs", ".js", ".jar", ".msi", ".dll", ".asp", ".aspx", ".php", ".jsp" };
         var ext = Path.GetExtension(file.FileName).ToLowerInvariant();
+        
+        if (dangerousExtensions.Contains(ext))
+            return (false, null, "Bu dosya türü güvenlik nedenleriyle yüklenemez");
+
+        var allowedTypes = new[] { ".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp", ".tiff", ".svg" };
         if (!allowedTypes.Contains(ext))
-            return (false, null, "Geçersiz dosya türü");
-        if (file.Length > 2 * 1024 * 1024)
-            return (false, null, "Dosya çok büyük (max 2MB)");
+            return (false, null, "Geçersiz dosya türü. Sadece resim dosyaları kabul edilir");
+
+        // Enhanced file size limit - 50MB
+        var maxFileSize = 50 * 1024 * 1024; // 50MB
+        if (file.Length > maxFileSize)
+            return (false, null, "Dosya boyutu 50MB'dan büyük olamaz");
+
+        // Additional MIME type validation
+        var allowedContentTypes = new[] { "image/jpeg", "image/png", "image/gif", "image/webp", "image/bmp", "image/tiff", "image/svg+xml" };
+        if (!allowedContentTypes.Contains(file.ContentType?.ToLowerInvariant()))
+            return (false, null, "Geçersiz dosya içerik türü");
 
         var fileName = $"{Guid.NewGuid()}{ext}";
         var folder = Path.Combine(_env.WebRootPath ?? Path.Combine(_env.ContentRootPath, "wwwroot"), "uploads");
         if (!Directory.Exists(folder)) Directory.CreateDirectory(folder);
         var filePath = Path.Combine(folder, fileName);
+        
         using (var stream = new FileStream(filePath, FileMode.Create))
         {
             await file.CopyToAsync(stream);
         }
+        
         var request = httpContext?.Request;
         var baseUrl = request != null
             ? $"{request.Scheme}://{request.Host}"
@@ -150,22 +166,35 @@ public class FileService : IFileService
         if (file == null || file.Length == 0)
             return (false, null, "Dosya seçilmedi");
 
-        var allowedExtensions = new[] { ".jpg", ".jpeg", ".png", ".gif", ".webp" };
-        var maxFileSize = 10 * 1024 * 1024; // 10MB
-
-        if (file.Length > maxFileSize)
-            return (false, null, $"Dosya boyutu {maxFileSize / (1024 * 1024)}MB'dan büyük olamaz");
-
+        // Use same enhanced validation as UploadImageAsync
+        var dangerousExtensions = new[] { ".exe", ".bat", ".cmd", ".scr", ".com", ".pif", ".vbs", ".js", ".jar", ".msi", ".dll", ".asp", ".aspx", ".php", ".jsp" };
         var extension = Path.GetExtension(file.FileName).ToLowerInvariant();
+        
+        if (dangerousExtensions.Contains(extension))
+            return (false, null, "Bu dosya türü güvenlik nedenleriyle yüklenemez");
+
+        var allowedExtensions = new[] { ".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp", ".tiff" };
         if (!allowedExtensions.Contains(extension))
             return (false, null, "Desteklenmeyen dosya formatı");
+
+        // Enhanced file size limit - 50MB
+        var maxFileSize = 50 * 1024 * 1024; // 50MB
+        if (file.Length > maxFileSize)
+            return (false, null, "Dosya boyutu 50MB'dan büyük olamaz");
+
+        // Additional MIME type validation
+        var allowedContentTypes = new[] { "image/jpeg", "image/png", "image/gif", "image/webp", "image/bmp", "image/tiff" };
+        if (!allowedContentTypes.Contains(file.ContentType?.ToLowerInvariant()))
+            return (false, null, "Geçersiz dosya içerik türü");
 
         var folder = Path.Combine(_env.WebRootPath ?? Path.Combine(_env.ContentRootPath, "wwwroot"), "uploads");
         if (!Directory.Exists(folder)) 
             Directory.CreateDirectory(folder);
 
         var fileName = $"{Guid.NewGuid()}_resized_{width}x{height}{extension}";
-        var filePath = Path.Combine(folder, fileName);        // Simple implementation - for production, use ImageSharp or similar library
+        var filePath = Path.Combine(folder, fileName);
+        
+        // Simple implementation - for production, use ImageSharp or similar library
         using (var stream = new FileStream(filePath, FileMode.Create))
         {
             await file.CopyToAsync(stream);

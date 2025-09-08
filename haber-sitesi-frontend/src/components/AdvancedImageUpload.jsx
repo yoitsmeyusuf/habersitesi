@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import api from '../services/api'
+import { FileUploadProgress } from './ProgressIndicators'
 
 const AdvancedImageUpload = ({ onImageUploaded, className = '', multiple = false, resize = false }) => {
   const [uploading, setUploading] = useState(false)
@@ -8,6 +9,8 @@ const AdvancedImageUpload = ({ onImageUploaded, className = '', multiple = false
   const [showGallery, setShowGallery] = useState(false)
   const [galleryPage, setGalleryPage] = useState(1)
   const [previewImages, setPreviewImages] = useState([])
+  const [uploadProgress, setUploadProgress] = useState({})
+  const [uploadingFiles, setUploadingFiles] = useState([])
   const fileInputRef = useRef(null)
 
   useEffect(() => {
@@ -57,36 +60,76 @@ const AdvancedImageUpload = ({ onImageUploaded, className = '', multiple = false
   const handleFiles = async (files) => {
     if (!files || files.length === 0) return
 
-    // Create preview images
-    const previews = Array.from(files).map(file => ({
+    const fileArray = Array.from(files)
+    
+    // Create preview images with progress tracking
+    const previews = fileArray.map((file, index) => ({
+      id: `file-${index}-${Date.now()}`,
       file,
       preview: URL.createObjectURL(file),
       name: file.name,
-      size: file.size
+      size: file.size,
+      progress: 0,
+      status: 'pending'
     }))
+    
     setPreviewImages(previews)
-
+    setUploadingFiles(previews)
     setUploading(true)
+    
     try {
       let result
 
       if (multiple && files.length > 1) {
-        // Multiple image upload
-        result = await api.uploadMultipleImages(files)
+        // Multiple image upload with progress tracking
+        result = await api.uploadMultipleImages(fileArray, (overallProgress, currentFile, totalFiles, fileName) => {
+          setUploadProgress(prev => ({
+            ...prev,
+            overall: overallProgress,
+            current: currentFile,
+            total: totalFiles,
+            currentFile: fileName
+          }))
+          
+          // Update individual file progress
+          setUploadingFiles(prev => prev.map((fileInfo, index) => {
+            if (index < currentFile - 1) {
+              return { ...fileInfo, progress: 100, status: 'completed' }
+            } else if (index === currentFile - 1) {
+              const fileProgress = overallProgress - ((currentFile - 1) * 100 / totalFiles)
+              const scaledProgress = Math.min(100, Math.max(0, fileProgress * totalFiles))
+              return { ...fileInfo, progress: scaledProgress, status: 'uploading' }
+            } else {
+              return { ...fileInfo, progress: 0, status: 'pending' }
+            }
+          }))
+        })
+        
         if (result.urls) {
           onImageUploaded(result.urls)
         }
       } else {
-        // Single image upload
+        // Single image upload with progress tracking
         const file = files[0]
+        const fileId = previews[0].id
+        
+        const progressCallback = (progress, loaded, total) => {
+          setUploadProgress({ overall: progress, loaded, total })
+          setUploadingFiles(prev => prev.map(f => 
+            f.id === fileId ? { ...f, progress, status: 'uploading' } : f
+          ))
+        }
         
         if (resize) {
-          result = await api.resizeImage(file, 800, 600)
+          result = await api.resizeImage(file, 800, 600, progressCallback)
         } else {
-          result = await api.uploadImage(file)
+          result = await api.uploadImage(file, progressCallback)
         }
         
         if (result.url) {
+          setUploadingFiles(prev => prev.map(f => 
+            f.id === fileId ? { ...f, progress: 100, status: 'completed' } : f
+          ))
           onImageUploaded(multiple ? [result.url] : result.url)
         }
       }
@@ -95,12 +138,19 @@ const AdvancedImageUpload = ({ onImageUploaded, className = '', multiple = false
         throw new Error('Upload başarısız')
       }
 
-      // Clear previews after successful upload
-      setPreviewImages([])
+      // Clear previews and progress after successful upload
+      setTimeout(() => {
+        setPreviewImages([])
+        setUploadingFiles([])
+        setUploadProgress({})
+      }, 2000) // Show completion for 2 seconds
       
     } catch (error) {
       console.error('Upload hatası:', error)
       alert('Resim yükleme sırasında hata oluştu: ' + error.message)
+      
+      // Mark failed uploads
+      setUploadingFiles(prev => prev.map(f => ({ ...f, status: 'error' })))
     } finally {
       setUploading(false)
       if (fileInputRef.current) {
@@ -153,7 +203,26 @@ const AdvancedImageUpload = ({ onImageUploaded, className = '', multiple = false
         {uploading ? (
           <div className="flex flex-col items-center gap-4">
             <div className="w-12 h-12 border-4 border-primary-500 border-t-transparent rounded-full animate-spin"></div>
-            <p className="text-primary-600 font-medium">Yükleniyor...</p>
+            <div className="text-center">
+              <p className="text-primary-600 font-medium mb-2">Yükleniyor...</p>
+              {uploadProgress.overall !== undefined && (
+                <div className="w-64 bg-gray-200 rounded-full h-2 mx-auto">
+                  <div 
+                    className="bg-primary-500 h-2 rounded-full transition-all duration-300" 
+                    style={{ width: `${uploadProgress.overall}%` }}
+                  ></div>
+                </div>
+              )}
+              {uploadProgress.overall !== undefined && (
+                <p className="text-sm text-gray-600 mt-2">{Math.round(uploadProgress.overall)}%</p>
+              )}
+              {uploadProgress.currentFile && (
+                <p className="text-xs text-gray-500 mt-1">
+                  {multiple && `${uploadProgress.current}/${uploadProgress.total} - `}
+                  {uploadProgress.currentFile}
+                </p>
+              )}
+            </div>
           </div>
         ) : (
           <div className="flex flex-col items-center gap-4">
@@ -167,8 +236,8 @@ const AdvancedImageUpload = ({ onImageUploaded, className = '', multiple = false
                 {multiple ? 'Resimleri sürükleyin veya seçin' : 'Resmi sürükleyin veya seçin'}
               </p>
               <p className="text-sm text-gray-500">
-                PNG, JPG, GIF, WEBP desteklenir (Max 10MB)
-                {multiple && ' - En fazla 5 resim'}
+                PNG, JPG, GIF, WEBP desteklenir (Max 50MB)
+                {multiple && ' - En fazla 10 resim'}
                 {resize && ' - Otomatik boyutlandırılacak (800x600)'}
               </p>
             </div>
@@ -204,6 +273,16 @@ const AdvancedImageUpload = ({ onImageUploaded, className = '', multiple = false
               </div>
             ))}
           </div>
+        </div>
+      )}
+
+      {/* File Upload Progress */}
+      {uploadingFiles.length > 0 && (
+        <div className="mt-6">
+          <FileUploadProgress 
+            files={uploadingFiles} 
+            showDetails={true}
+          />
         </div>
       )}
 
