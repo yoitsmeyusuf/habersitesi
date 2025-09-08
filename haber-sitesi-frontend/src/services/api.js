@@ -1335,8 +1335,8 @@ const api = {
     }
   },
 
-  // File Upload
-  async uploadImage(file) {
+  // File Upload with progress support
+  async uploadImage(file, onProgress = null) {
     logger.log('🖼️ [UPLOAD] Starting image upload:', {
       name: file.name,
       size: file.size,
@@ -1347,44 +1347,201 @@ const api = {
       throw new Error('Dosya seçilmedi')
     }
     
-    // Validate file type
+    // Enhanced MIME type validation - reject dangerous file types
+    const dangerousExtensions = ['.exe', '.bat', '.cmd', '.scr', '.com', '.pif', '.vbs', '.js', '.jar', '.msi', '.dll']
+    const fileExtension = file.name.toLowerCase().split('.').pop()
+    if (dangerousExtensions.includes(`.${fileExtension}`)) {
+      logger.error('🖼️ [UPLOAD] Dangerous file type:', fileExtension)
+      throw new Error('Bu dosya türü güvenlik nedenleriyle yüklenemez.')
+    }
+    
+    // Validate file type with magic numbers
     const isValidType = await validateFileType(file)
     if (!isValidType) {
       logger.error('🖼️ [UPLOAD] Invalid file type:', file.type)
       throw new Error('Geçersiz dosya türü. Sadece resim dosyaları kabul edilir.')
     }
     
-    // Check file size (5MB limit)
-    if (file.size > 5 * 1024 * 1024) {
+    // Check file size (50MB limit)
+    const maxSize = 50 * 1024 * 1024 // 50MB
+    if (file.size > maxSize) {
       logger.error('🖼️ [UPLOAD] File too large:', file.size)
-      throw new Error('Dosya boyutu 5MB\'dan büyük olamaz')
+      throw new Error('Dosya boyutu 50MB\'dan büyük olamaz')
     }
     
-    try {
+    return new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest()
       const formData = new FormData()
-      formData.append('file', file)  // Backend 'file' bekliyor, 'image' değil
+      formData.append('file', file)
+      
+      // Progress tracking
+      if (onProgress) {
+        xhr.upload.addEventListener('progress', (event) => {
+          if (event.lengthComputable) {
+            const percentComplete = Math.round((event.loaded / event.total) * 100)
+            onProgress(percentComplete, event.loaded, event.total)
+            logger.log(`🖼️ [UPLOAD] Progress: ${percentComplete}%`)
+          }
+        })
+      }
+      
+      // Handle completion
+      xhr.addEventListener('load', async () => {
+        logger.log('🖼️ [UPLOAD] Response status:', xhr.status)
+        
+        try {
+          const data = JSON.parse(xhr.responseText)
+          logger.log('🖼️ [UPLOAD] Response data:', data)
+          
+          if (xhr.status >= 200 && xhr.status < 300) {
+            logger.log('🖼️ [UPLOAD] Upload successful:', data.url)
+            resolve(data)
+          } else {
+            throw new Error(data.message || 'Dosya yüklenemedi')
+          }
+        } catch (parseError) {
+          logger.error('🖼️ [UPLOAD] Response parse error:', parseError)
+          reject(new Error('Sunucu yanıtı çözümlenemedi'))
+        }
+      })
+      
+      // Handle errors
+      xhr.addEventListener('error', () => {
+        logger.error('🖼️ [UPLOAD] Network error')
+        reject(new Error('Ağ hatası oluştu'))
+      })
+      
+      xhr.addEventListener('abort', () => {
+        logger.error('🖼️ [UPLOAD] Upload aborted')
+        reject(new Error('Yükleme iptal edildi'))
+      })
+      
+      // Set auth headers
+      const authHeaders = withAuth()
+      Object.keys(authHeaders).forEach(key => {
+        xhr.setRequestHeader(key, authHeaders[key])
+      })
       
       logger.log('🖼️ [UPLOAD] Making request to:', `${API_URL}/haber/resim-yukle`)
       
-      const res = await fetch(`${API_URL}/haber/resim-yukle`, {  // Doğru endpoint
-        method: 'POST',
-        headers: withAuth(),
-        body: formData
-      })
-      
-      logger.log('🖼️ [UPLOAD] Response status:', res.status)
-      
-      const data = await safeJson(res)
-      logger.log('🖼️ [UPLOAD] Response data:', data)
-      
-      if (!res.ok) {
-        throw new Error(data.message || 'Dosya yüklenemedi')
+      // Start upload
+      xhr.open('POST', `${API_URL}/haber/resim-yukle`)
+      xhr.send(formData)
+    })
+  },
+
+  // Multiple image upload with progress support
+  async uploadMultipleImages(files, onProgress = null) {
+    if (!files || files.length === 0) {
+      throw new Error('Dosya seçilmedi')
+    }
+
+    const results = []
+    let totalProgress = 0
+    const fileCount = files.length
+
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i]
+      try {
+        const result = await this.uploadImage(file, (progress) => {
+          // Calculate overall progress across all files
+          const overallProgress = Math.round(((i * 100 + progress) / fileCount))
+          if (onProgress) {
+            onProgress(overallProgress, i + 1, fileCount, file.name)
+          }
+        })
+        results.push(result)
+      } catch (error) {
+        logger.error('Multiple upload error for file:', file.name, error)
+        // Continue with other files but record the error
+        results.push({ error: error.message, fileName: file.name })
       }
-      
-      logger.log('🖼️ [UPLOAD] Upload successful:', data.url)
-      return data
+    }
+
+    return { urls: results.filter(r => r.url).map(r => r.url), results }
+  },
+
+  // Resize image upload with progress support
+  async resizeImage(file, width, height, onProgress = null) {
+    logger.log('🖼️ [RESIZE] Starting image resize upload:', {
+      name: file.name,
+      size: file.size,
+      width,
+      height
+    })
+
+    if (!file) {
+      throw new Error('Dosya seçilmedi')
+    }
+
+    // Same validation as uploadImage
+    const dangerousExtensions = ['.exe', '.bat', '.cmd', '.scr', '.com', '.pif', '.vbs', '.js', '.jar', '.msi', '.dll']
+    const fileExtension = file.name.toLowerCase().split('.').pop()
+    if (dangerousExtensions.includes(`.${fileExtension}`)) {
+      throw new Error('Bu dosya türü güvenlik nedenleriyle yüklenemez.')
+    }
+
+    const isValidType = await validateFileType(file)
+    if (!isValidType) {
+      throw new Error('Geçersiz dosya türü. Sadece resim dosyaları kabul edilir.')
+    }
+
+    const maxSize = 50 * 1024 * 1024 // 50MB
+    if (file.size > maxSize) {
+      throw new Error('Dosya boyutu 50MB\'dan büyük olamaz')
+    }
+
+    return new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest()
+      const formData = new FormData()
+      formData.append('file', file)
+
+      if (onProgress) {
+        xhr.upload.addEventListener('progress', (event) => {
+          if (event.lengthComputable) {
+            const percentComplete = Math.round((event.loaded / event.total) * 100)
+            onProgress(percentComplete, event.loaded, event.total)
+          }
+        })
+      }
+
+      xhr.addEventListener('load', async () => {
+        try {
+          const data = JSON.parse(xhr.responseText)
+          if (xhr.status >= 200 && xhr.status < 300) {
+            resolve(data)
+          } else {
+            throw new Error(data.message || 'Dosya yeniden boyutlandırılamadı')
+          }
+        } catch (parseError) {
+          reject(new Error('Sunucu yanıtı çözümlenemedi'))
+        }
+      })
+
+      xhr.addEventListener('error', () => {
+        reject(new Error('Ağ hatası oluştu'))
+      })
+
+      const authHeaders = withAuth()
+      Object.keys(authHeaders).forEach(key => {
+        xhr.setRequestHeader(key, authHeaders[key])
+      })
+
+      xhr.open('POST', `${API_URL}/haber/resim-yeniden-boyutlandir?width=${width}&height=${height}`)
+      xhr.send(formData)
+    })
+  },
+
+  // Get image gallery with pagination
+  async getImageGallery(page = 1, limit = 12) {
+    try {
+      const params = new URLSearchParams({
+        page: page.toString(),
+        limit: limit.toString()
+      })
+      return await this.get(`/haber/resim-galerisi?${params}`)
     } catch (err) {
-      logger.error('🖼️ [UPLOAD] Upload failed:', err)
+      logger.error('Get image gallery error:', err)
       throw err
     }
   },
