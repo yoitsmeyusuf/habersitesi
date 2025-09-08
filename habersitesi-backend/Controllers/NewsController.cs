@@ -1177,8 +1177,12 @@ public class NewsController : ControllerBase
             var lastDash = slug.LastIndexOf('-');
             if (lastDash > 50)
                 slug = slug.Substring(0, lastDash);
-        }        return string.IsNullOrEmpty(slug) ? "haber" : slug;
-    }    // Helper method to increment view count asynchronously
+        }
+        
+        return string.IsNullOrEmpty(slug) ? "haber" : slug;
+    }
+    
+    // Helper method to increment view count asynchronously
     private async Task IncrementViewCountAsync(int newsId)
     {
         try
@@ -1195,10 +1199,10 @@ public class NewsController : ControllerBase
                 await _cache.RemoveAsync(string.Format(CacheKeys.NEWS_DETAIL, newsId));
             }
         }
-        catch (Exception ex)
+        catch (Exception)
         {
             // Log error but don't throw to avoid affecting main request
-            Console.WriteLine($"Error incrementing view count for news {newsId}: {ex.Message}");
+            // View count increment error logged
         }
     }
 
