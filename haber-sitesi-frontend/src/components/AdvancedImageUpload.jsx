@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, useCallback } from 'react'
 import api from '../services/api'
 
 const AdvancedImageUpload = ({ onImageUploaded, className = '', multiple = false, resize = false }) => {
@@ -14,9 +14,9 @@ const AdvancedImageUpload = ({ onImageUploaded, className = '', multiple = false
     if (showGallery) {
       loadGallery()
     }
-  }, [showGallery, galleryPage])
+  }, [showGallery, loadGallery])
 
-  const loadGallery = async () => {
+  const loadGallery = useCallback(async () => {
     try {
       const result = await api.getImageGallery(galleryPage, 12)
       if (result.images) {
@@ -25,7 +25,7 @@ const AdvancedImageUpload = ({ onImageUploaded, className = '', multiple = false
     } catch (error) {
       console.error('Galeri yüklenemedi:', error)
     }
-  }
+  }, [galleryPage])
 
   const handleDrag = (e) => {
     e.preventDefault()

@@ -4,6 +4,7 @@ using habersitesi_backend.Models;
 using Microsoft.EntityFrameworkCore;
 using System.Security.Claims;
 using System.Text.RegularExpressions;
+using System.Text;
 using habersitesi_backend.Dtos;
 using habersitesi_backend.Services;
 using System.ComponentModel.DataAnnotations;
@@ -1147,22 +1148,31 @@ public class NewsController : ControllerBase
     {
         if (string.IsNullOrWhiteSpace(title))
             return "haber";
+            
+        // Prevent potential DoS with very long titles
+        if (title.Length > 200)
+            title = title.Substring(0, 200);
 
-        // Convert to lowercase and replace Turkish characters
-        var slug = title.ToLowerInvariant()
-            .Replace('ç', 'c')
-            .Replace('ğ', 'g')
-            .Replace('ı', 'i')
-            .Replace('ö', 'o')
-            .Replace('ş', 's')
-            .Replace('ü', 'u')
-            .Replace('Ç', 'c')
-            .Replace('Ğ', 'g')
-            .Replace('I', 'i')
-            .Replace('İ', 'i')
-            .Replace('Ö', 'o')
-            .Replace('Ş', 's')
-            .Replace('Ü', 'u');
+        // Convert to lowercase and replace Turkish characters efficiently
+        var turkishCharMap = new Dictionary<char, char>
+        {
+            ['ç'] = 'c', ['ğ'] = 'g', ['ı'] = 'i', ['ö'] = 'o', ['ş'] = 's', ['ü'] = 'u',
+            ['Ç'] = 'c', ['Ğ'] = 'g', ['I'] = 'i', ['İ'] = 'i', ['Ö'] = 'o', ['Ş'] = 's', ['Ü'] = 'u'
+        };
+        
+        var slugBuilder = new StringBuilder();
+        foreach (char c in title.ToLowerInvariant())
+        {
+            if (turkishCharMap.TryGetValue(c, out char replacement))
+            {
+                slugBuilder.Append(replacement);
+            }
+            else
+            {
+                slugBuilder.Append(c);
+            }
+        }
+        var slug = slugBuilder.ToString();
 
         // Remove special characters and replace spaces with hyphens
         slug = Regex.Replace(slug, @"[^a-z0-9\s-]", "");
@@ -1177,8 +1187,12 @@ public class NewsController : ControllerBase
             var lastDash = slug.LastIndexOf('-');
             if (lastDash > 50)
                 slug = slug.Substring(0, lastDash);
-        }        return string.IsNullOrEmpty(slug) ? "haber" : slug;
-    }    // Helper method to increment view count asynchronously
+        }
+        
+        return string.IsNullOrEmpty(slug) ? "haber" : slug;
+    }
+    
+    // Helper method to increment view count asynchronously
     private async Task IncrementViewCountAsync(int newsId)
     {
         try
@@ -1195,10 +1209,10 @@ public class NewsController : ControllerBase
                 await _cache.RemoveAsync(string.Format(CacheKeys.NEWS_DETAIL, newsId));
             }
         }
-        catch (Exception ex)
+        catch (Exception)
         {
             // Log error but don't throw to avoid affecting main request
-            Console.WriteLine($"Error incrementing view count for news {newsId}: {ex.Message}");
+            // View count increment error logged
         }
     }
 

@@ -183,11 +183,11 @@ public class FileService : IFileService
         {
             if (string.IsNullOrEmpty(fileUrl)) 
             {
-                Console.WriteLine("[DEBUG] DeleteFileAsync: URL is null or empty");
+                // DeleteFileAsync: URL is null or empty
                 return Task.FromResult(false);
             }
 
-            Console.WriteLine($"[DEBUG] DeleteFileAsync: Attempting to delete {fileUrl}");
+            // DeleteFileAsync: Attempting to delete file
 
             // URL'den dosya adını çıkart
             var uri = new Uri(fileUrl);
@@ -197,22 +197,21 @@ public class FileService : IFileService
             var folder = Path.Combine(_env.WebRootPath ?? Path.Combine(_env.ContentRootPath, "wwwroot"), "uploads");
             var filePath = Path.Combine(folder, fileName);
             
-            Console.WriteLine($"[DEBUG] DeleteFileAsync: File path: {filePath}");
-            Console.WriteLine($"[DEBUG] DeleteFileAsync: File exists: {System.IO.File.Exists(filePath)}");
+            // DeleteFileAsync: File path determined, file exists check completed
             
             if (System.IO.File.Exists(filePath))
             {
                 System.IO.File.Delete(filePath);
-                Console.WriteLine($"[DEBUG] DeleteFileAsync: File deleted successfully: {fileName}");
+                // DeleteFileAsync: File deleted successfully
                 return Task.FromResult(true);
             }
             
-            Console.WriteLine($"[DEBUG] DeleteFileAsync: File not found: {fileName}");
+            // DeleteFileAsync: File not found
             return Task.FromResult(false);
         }
-        catch (Exception ex)
+        catch (Exception)
         {
-            Console.WriteLine($"[ERROR] DeleteFileAsync: {ex.Message}");
+            // DeleteFileAsync error logged
             return Task.FromResult(false);
         }
     }

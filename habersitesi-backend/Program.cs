@@ -33,49 +33,42 @@ Console.WriteLine("======================");
 */
 
 var builder = WebApplication.CreateBuilder(args);
-// builder.Services.Configure<KestrelServerOptions>(options =>
-// {
-//     options.Limits.KeepAliveTimeout = TimeSpan.FromMinutes(2);
-//     options.Limits.MaxConcurrentConnections = 100;
-//     options.Limits.MaxConcurrentUpgradedConnections = 100;
-//     options.Limits.MaxRequestBodySize = 104857600; // 100 MB
-// });
 
 // Production'da environment variables'ları yükle
 // .env.secrets dosyası varsa yükle (opsiyonel)
 var envPath = Path.Combine(builder.Environment.ContentRootPath, ".env.secrets");
 if (File.Exists(envPath))
 {
-    Console.WriteLine($"✅ Loading .env file from: {envPath}");
+    // Environment secrets loaded
     Env.Load(envPath);
     
     // Environment variable'larını configuration'a ekle
     builder.Configuration.AddEnvironmentVariables();
     
     var connString = Environment.GetEnvironmentVariable("DefaultConnection");
-    Console.WriteLine($"✅ ConnectionString from env loaded: {(string.IsNullOrEmpty(connString) ? "❌ NOT FOUND" : "✅ Found")}");
+    // Connection string configuration validated
     
     var jwtKey = Environment.GetEnvironmentVariable("Jwt__Key");
-    Console.WriteLine($"✅ JWT Key from env loaded: {(string.IsNullOrEmpty(jwtKey) ? "❌ NOT FOUND" : "✅ Found")}");
+    // JWT configuration validated
     
     // SiteSettings configuration'ını environment variable'lardan ekle
     var siteBaseUrl = Environment.GetEnvironmentVariable("SiteSettings__BaseUrl");
     if (!string.IsNullOrEmpty(siteBaseUrl))
     {
         builder.Configuration["SiteSettings:BaseUrl"] = siteBaseUrl;
-        Console.WriteLine($"✅ SiteSettings:BaseUrl set to: {siteBaseUrl}");
+        // SiteSettings:BaseUrl configured
     }
     
     var siteProductionUrl = Environment.GetEnvironmentVariable("SiteSettings__ProductionUrl");
     if (!string.IsNullOrEmpty(siteProductionUrl))
     {
         builder.Configuration["SiteSettings:ProductionUrl"] = siteProductionUrl;
-        Console.WriteLine($"✅ SiteSettings:ProductionUrl set to: {siteProductionUrl}");
+        // SiteSettings:ProductionUrl configured
     }
 }
 else
 {
-    Console.WriteLine($"⚠️  .env.secrets file not found at: {envPath}");
+    // Environment secrets file not found
 }
 
 // Add services to the container.
@@ -87,7 +80,7 @@ builder.Services.AddSwaggerGen();
 if (builder.Environment.IsDevelopment())
 {
     builder.Configuration["AllowedHosts"] = "*";
-    Console.WriteLine("🔓 Development mode: AllowedHosts set to * for easier local development");
+    // Development mode: AllowedHosts set to * for easier local development
 }
 else
 {
@@ -96,7 +89,7 @@ else
     if (!string.IsNullOrEmpty(allowedHosts))
     {
         builder.Configuration["AllowedHosts"] = allowedHosts;
-        Console.WriteLine($"✅ Production AllowedHosts: {allowedHosts}");
+        // Production AllowedHosts configured
     }
 }
 
@@ -152,7 +145,7 @@ builder.Services.AddCors(options =>
             if (builder.Environment.IsDevelopment())
             {
                 // Development: Allow localhost
-                Console.WriteLine("🔧 CORS: Development mode - AllowAnyOrigin enabled");
+                // CORS: Development mode - AllowAnyOrigin enabled
                 policy.AllowAnyOrigin()
                       .AllowAnyHeader()
                       .AllowAnyMethod();
@@ -165,7 +158,7 @@ builder.Services.AddCors(options =>
                     "https://www.habersitesi.rumbara.online",
                     "http://habersitesi.rumbara.online"
                 };
-                Console.WriteLine($"🔧 CORS: Production mode - Allowed origins: {string.Join(", ", allowedOrigins)}");
+                // CORS: Production mode - Allowed origins configured
                 
                 policy.WithOrigins(allowedOrigins)
                 .AllowAnyHeader()
@@ -187,7 +180,7 @@ builder.Services.AddDbContext<AppDbContext>(options =>
         throw new InvalidOperationException("Connection string 'DefaultConnection' not found in environment variables or appsettings.json");
     }
     
-    Console.WriteLine($"Using connection string: {connectionString.Substring(0, Math.Min(50, connectionString.Length))}...");
+    // Connection string configured successfully
     
     // Database connection test - production'da hızlı test
     if (builder.Environment.IsDevelopment())
@@ -196,18 +189,18 @@ builder.Services.AddDbContext<AppDbContext>(options =>
         {
             using var testConnection = new Npgsql.NpgsqlConnection(connectionString);
             testConnection.Open();
-            Console.WriteLine("✅ Database connection test successful!");
+            // Database connection test successful
             testConnection.Close();
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"❌ Database connection failed: {ex.Message}");
+            // Database connection failed - startup will continue
             throw new InvalidOperationException($"Database connection failed: {ex.Message}", ex);
         }
     }
     else
     {
-        Console.WriteLine("⏩ Production mode: Skipping database connection test at startup");
+        // Production mode: Skipping database connection test at startup
     }
     
     options.UseNpgsql(connectionString, npgsqlOptions =>
@@ -290,14 +283,14 @@ try
     {
         using var scope = app.Services.CreateScope();
         var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-        Console.WriteLine("🚀 MIGRATE_ON_STARTUP=true → Applying pending EF Core migrations...");
+        // MIGRATE_ON_STARTUP=true → Applying pending EF Core migrations...
         context.Database.Migrate();
-        Console.WriteLine("✅ Database migrations applied");
+        // Database migrations applied
     }
 }
-catch (Exception ex)
+catch (Exception)
 {
-    Console.WriteLine($"⚠️ Migration error (startup will continue): {ex.Message}");
+    // Migration error (startup will continue)
 }
 
 // Global error handling with CORS support
@@ -352,18 +345,10 @@ app.UseCors("AllowFrontend");
 app.Use(async (context, next) =>
 {
     var origin = context.Request.Headers["Origin"].ToString();
-    var method = context.Request.Method;
-    var path = context.Request.Path;
-    
-    if (!string.IsNullOrEmpty(origin))
-    {
-        Console.WriteLine($"🌐 CORS Request: {method} {path} from Origin: {origin}");
-        Console.WriteLine($"🌐 User-Agent: {context.Request.Headers["User-Agent"]}");
-    }
     
     await next();
     
-    // 🔧 Response sonrası CORS header'ı kontrolü ve manuel ekleme
+    // Response sonrası CORS header'ı kontrolü ve manuel ekleme
     if (!string.IsNullOrEmpty(origin))
     {
         var corsHeader = context.Response.Headers["Access-Control-Allow-Origin"].ToString();
@@ -383,12 +368,8 @@ app.Use(async (context, next) =>
                 context.Response.Headers["Access-Control-Allow-Origin"] = origin;
                 context.Response.Headers["Access-Control-Allow-Credentials"] = "true";
                 context.Response.Headers["Vary"] = "Origin";
-                Console.WriteLine($"🔧 Manuel CORS header eklendi: {origin}");
             }
         }
-        
-        var finalCorsHeader = context.Response.Headers["Access-Control-Allow-Origin"].ToString();
-        Console.WriteLine($"🌐 CORS Response: {context.Response.StatusCode} - CORS Header: {finalCorsHeader}");
     }
 });
 
@@ -421,9 +402,9 @@ app.Use(async (context, next) =>
     // Production-only security headers
     if (!app.Environment.IsDevelopment())
     {
-        context.Response.Headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains";
-        context.Response.Headers["Content-Security-Policy"] = "default-src 'self'";
-        context.Response.Headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()";
+        context.Response.Headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains; preload";
+        context.Response.Headers["Content-Security-Policy"] = "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:";
+        context.Response.Headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=(), payment=(), usb=()";
     }
     
     // Remove server information
