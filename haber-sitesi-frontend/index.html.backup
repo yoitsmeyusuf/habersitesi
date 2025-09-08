@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="tr">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/x-icon" href="/icon-192x192.png" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    
+    <!-- Production CSP - Strict Security -->
+    <meta http-equiv="Content-Security-Policy" content="
+      default-src 'self';
+      script-src 'self' https://cdn.ckeditor.com https://accounts.google.com https://apis.google.com;
+      style-src 'self' 'unsafe-inline' https://fonts.googleapis.com;
+      font-src 'self' https://fonts.gstatic.com;
+      img-src 'self' data: blob: https:;
+      connect-src 'self' https:;
+      frame-src 'self' https://accounts.google.com;
+      object-src 'none';
+      base-uri 'self';
+      form-action 'self';
+      upgrade-insecure-requests;
+    ">
+    
+    <!-- Enhanced Security Headers -->
+    <meta http-equiv="Strict-Transport-Security" content="max-age=31536000; includeSubDomains; preload">
+    <meta http-equiv="X-Content-Type-Options" content="nosniff">
+    <meta http-equiv="X-Frame-Options" content="DENY">
+    <meta http-equiv="X-XSS-Protection" content="1; mode=block">
+    <meta http-equiv="Referrer-Policy" content="strict-origin-when-cross-origin">
+    <meta http-equiv="Permissions-Policy" content="camera=(), microphone=(), geolocation=()">
+    
+    <!-- Canonical URL -->
+    <link rel="canonical" href="https://habersitesi.rumbara.online" />
+    
+    <!-- Enhanced SEO Meta Tags -->
+    <meta name="description" content="Türkiye'nin en güncel haber sitesi. Son dakika haberleri, siyaset, ekonomi, spor, teknoloji haberleri. 7/24 güvenilir haber kaynağı." />
+    <meta name="keywords" content="son dakika, güncel haberler, türkiye haberleri, siyaset, ekonomi, spor, teknoloji, sağlık, dünya haberleri, güvenilir haber" />
+    <meta name="author" content="Haber Sitesi" />
+    <meta name="robots" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1" />
+    <meta name="language" content="tr">
+    <meta name="geo.region" content="TR">
+    <meta name="geo.country" content="Turkey">
+    
+    <!-- Enhanced Open Graph Meta Tags -->
+    <meta property="og:title" content="Güncel Haberler, Son Dakika | Türkiye Haber Sitesi" />
+    <meta property="og:description" content="Türkiye'nin en güncel haber sitesi. Son dakika haberleri, siyaset, ekonomi, spor, teknoloji haberleri. 7/24 güvenilir haber kaynağı." />
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://habersitesi.rumbara.online" />
+    <meta property="og:image" content="https://habersitesi.rumbara.online/icon-512x512.png" />
+    <meta property="og:image:width" content="512" />
+    <meta property="og:image:height" content="512" />
+    <meta property="og:site_name" content="Haber Sitesi" />
+    <meta property="og:locale" content="tr_TR" />
+    
+    <!-- Enhanced Twitter Card Meta Tags -->
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Güncel Haberler, Son Dakika | Türkiye Haber Sitesi" />
+    <meta name="twitter:description" content="Türkiye'nin en güncel haber sitesi. Son dakika haberleri, siyaset, ekonomi, spor, teknoloji haberleri." />
+    <meta name="twitter:image" content="https://habersitesi.rumbara.online/icon-512x512.png" />
+    <meta name="twitter:site" content="@habersitesi" />
+    <meta name="twitter:creator" content="@habersitesi" />
+    
+    <!-- PWA Manifest -->
+    <link rel="manifest" href="/manifest.json" />
+    <meta name="theme-color" content="#1f2937" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <link rel="apple-touch-icon" href="/icon-192x192.png" />
+    
+    <!-- Enhanced Favicon -->
+    <link rel="icon" type="image/png" sizes="32x32" href="/icon-192x192.png">
+    <link rel="icon" type="image/png" sizes="16x16" href="/icon-192x192.png">
+    <link rel="shortcut icon" href="/icon-192x192.png">
+    
+    <!-- Preconnect for Performance -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link rel="preconnect" href="https://www.google-analytics.com">
+  <link rel="preconnect" href="https://api.rumbara.online" crossorigin>
+    
+    <!-- Google Analytics 4 -->
+    <!-- TODO: Replace GA_MEASUREMENT_ID with your actual Google Analytics 4 Measurement ID -->
+    <!-- Format: G-XXXXXXXXXX -->
+    <!-- Get it from: https://analytics.google.com/analytics/web/ -->
+    <script async src="https://www.googletagmanager.com/gtag/js?id=G-6MVC36C6E8"></script>
+    <script>
+      window.dataLayer = window.dataLayer || [];
+      function gtag(){dataLayer.push(arguments);}
+      gtag('js', new Date());
+      gtag('config', 'G-6MVC36C6E8', {
+        page_title: document.title,
+        page_location: window.location.href,
+        custom_map: {
+          'dimension1': 'news_category',
+          'dimension2': 'author_name'
+        }
+      });
+      
+      // Enhanced ecommerce for news tracking
+      gtag('config', 'G-6MVC36C6E8', {
+        'custom_parameter': 'news_site'
+      });
+    </script>
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    
+    <!-- Google OAuth Script -->
+    <script src="https://accounts.google.com/gsi/client" async defer></script>
+    
+    <title>Haber Sitesi - Türkiye'nin Güvenilir Haber Kaynağı</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.jsx"></script>
+  </body>
+</html>
