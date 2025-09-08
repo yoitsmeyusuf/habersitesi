@@ -181,9 +181,11 @@ public class NewsController : ControllerBase
         if (page < 1) page = 1;
         if (pageSize < 1 || pageSize > 50) pageSize = 10;
 
-        var cacheKey = $"news_search_{q}_{category}_{author}_{tags}_{startDate}_{endDate}_{featured}_{page}_{pageSize}_{sortBy}".GetHashCode();
+        var cacheKey = CacheKeyHelper.GenerateKey("news_search", q, category, author, tags, 
+            startDate?.ToString("yyyy-MM-dd"), endDate?.ToString("yyyy-MM-dd"), 
+            featured?.ToString(), page.ToString(), pageSize.ToString(), sortBy);
         
-        var cachedResult = await _cache.GetAsync<object>(cacheKey.ToString());
+        var cachedResult = await _cache.GetAsync<object>(cacheKey);
         if (cachedResult != null)
         {
             return Ok(cachedResult);
@@ -306,7 +308,7 @@ public class NewsController : ControllerBase
                 sortBy
             }
         };        // Cache search results for 2 minutes
-        await _cache.SetAsync(cacheKey.ToString(), result, TimeSpan.FromMinutes(2));
+        await _cache.SetAsync(cacheKey, result, TimeSpan.FromMinutes(2));
 
         return Ok(result);
     }
