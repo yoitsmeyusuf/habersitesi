@@ -98,7 +98,7 @@ public class CommentController : ControllerBase
         var isAdminOrAuthor = User?.IsInRole("admin") == true || User?.IsInRole("author") == true;
         
         // Debug: Add timestamp to see if cache is working
-        Console.WriteLine($"[DEBUG] GetComments called for newsId: {newsId} at {DateTime.UtcNow:yyyy-MM-dd HH:mm:ss.fff}");
+        // GetComments called for newsId at timestamp
           // Get main comments (not replies) first - Force fresh data with AsNoTracking
         var mainCommentsQuery = _context.Comments
             .AsNoTracking() // Force fresh data from DB
@@ -479,9 +479,9 @@ public class CommentController : ControllerBase
 
             return (true, "");
         }
-        catch (Exception ex)
+        catch (Exception)
         {
-            Console.WriteLine($"[ERROR] Quote validation error: {ex.Message}");
+            // Quote validation error logged
             return (false, "Alıntı doğrulama sırasında bir hata oluştu.");
         }
     }    private async Task InvalidateNewsCache(int newsId)
@@ -496,7 +496,7 @@ public class CommentController : ControllerBase
         await _cache.RemovePatternAsync("featured_news_");
         await _cache.RemovePatternAsync("popular_news_");
         
-        Console.WriteLine($"[DEBUG] Cache invalidated for news {newsId}");
+        // Cache invalidated for news
     }
 
     // Reply to a comment
@@ -548,11 +548,11 @@ public class CommentController : ControllerBase
             // Update parent comment reply count
             parentComment.ReplyCount++;
             
-            Console.WriteLine($"[DEBUG] Adding reply to comment {parentComment.Id}, new reply count: {parentComment.ReplyCount}");
+            // Reply added to parent comment, reply count updated
             
             await _context.SaveChangesAsync();
 
-            Console.WriteLine($"[DEBUG] Reply saved with ID: {reply.Id}, ParentId: {reply.ParentId}");
+            // Reply saved with ID and ParentId
 
             // Invalidate cache
             await InvalidateNewsCache(newsId);
