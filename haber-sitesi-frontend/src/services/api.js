@@ -39,6 +39,47 @@ function getToken() {
   return getCookie('token')
 }
 
+// CSRF token management
+let csrfToken = null
+
+async function getCsrfToken() {
+  if (csrfToken) {
+    return csrfToken
+  }
+  
+  try {
+    const res = await fetch(`${API_URL}/anti-forgery-token`, {
+      method: 'GET',
+      credentials: 'include' // Include cookies for CSRF token generation
+    })
+    
+    if (res.ok) {
+      const data = await safeJson(res)
+      csrfToken = data.token
+      return csrfToken
+    }
+  } catch (err) {
+    logger.error('Failed to get CSRF token:', err)
+  }
+  
+  return null
+}
+
+// Clear CSRF token (e.g., on logout)
+function clearCsrfToken() {
+  csrfToken = null
+}
+
+// Auth and CSRF header helper
+async function withAuthAndCsrf() {
+  const headers = withAuth()
+  const token = await getCsrfToken()
+  if (token) {
+    headers['X-XSRF-TOKEN'] = token
+  }
+  return headers
+}
+
 // Safe JSON parser
 async function safeJson(response) {
   try {
@@ -203,6 +244,7 @@ const api = {
       logger.error('Logout error:', err)
     } finally {
       deleteCookie('token')
+      clearCsrfToken() // Clear CSRF token on logout
       // Token removed from httpOnly cookie only
     }
   },
@@ -261,7 +303,7 @@ const api = {
     try {
       const res = await fetch(`${API_URL}/kimlik/profil`, {
         method: 'PUT',
-        headers: { ...withAuth(), 'Content-Type': 'application/json' },
+        headers: { ...(await withAuthAndCsrf()), 'Content-Type': 'application/json' },
         body: JSON.stringify(profileData)
       })
       
@@ -282,7 +324,7 @@ const api = {
     try {
       const res = await fetch(`${API_URL}/kimlik/password`, {
         method: 'PUT',
-        headers: { ...withAuth(), 'Content-Type': 'application/json' },
+        headers: { ...(await withAuthAndCsrf()), 'Content-Type': 'application/json' },
         body: JSON.stringify(passwordData)
       })
       
@@ -400,7 +442,7 @@ const api = {
     try {
             const res = await fetch(`${API_URL}/kimlik/profil/avatar-yukle`, {
         method: 'POST',
-        headers: withAuth(),
+        headers: await withAuthAndCsrf(),
         body: formData
       })
       
@@ -526,7 +568,7 @@ const api = {
     try {
       const res = await fetch(`${API_URL}/haber`, {
         method: 'POST',
-        headers: { ...withAuth(), 'Content-Type': 'application/json' },
+        headers: { ...(await withAuthAndCsrf()), 'Content-Type': 'application/json' },
         body: JSON.stringify(newsData)
       })
       
@@ -547,7 +589,7 @@ const api = {
     try {
       const res = await fetch(`${API_URL}/haber/${id}`, {
         method: 'PUT',
-        headers: { ...withAuth(), 'Content-Type': 'application/json' },
+        headers: { ...(await withAuthAndCsrf()), 'Content-Type': 'application/json' },
         body: JSON.stringify(newsData)
       })
       
@@ -580,7 +622,7 @@ const api = {
         res = await fetch(`${API_URL}/haber`, {
           method: 'POST',
           headers: { 
-            ...withAuth(), 
+            ...(await withAuthAndCsrf()), 
             'Content-Type': 'application/json' 
           },
           body: JSON.stringify(newsData)
@@ -724,7 +766,7 @@ const api = {
     try {
       const res = await fetch(`${API_URL}/haber/${id}`, {
         method: 'DELETE',
-        headers: withAuth()
+        headers: await withAuthAndCsrf()
       })
       
       if (!res.ok) {
@@ -838,7 +880,7 @@ const api = {
     try {
       const res = await fetch(`${API_URL}/kategoriler`, {
         method: 'POST',
-        headers: { ...withAuth(), 'Content-Type': 'application/json' },
+        headers: { ...(await withAuthAndCsrf()), 'Content-Type': 'application/json' },
         body: JSON.stringify(categoryData)
       })
       
@@ -864,7 +906,7 @@ const api = {
     try {
       const res = await fetch(`${API_URL}/kategoriler/${id}`, {
         method: 'PUT',
-        headers: { ...withAuth(), 'Content-Type': 'application/json' },
+        headers: { ...(await withAuthAndCsrf()), 'Content-Type': 'application/json' },
         body: JSON.stringify(categoryData)
       })
       
@@ -907,7 +949,7 @@ const api = {
       // Şimdi kategoriyi sil
       const res = await fetch(`${API_URL}/kategoriler/${id}`, {
         method: 'DELETE',
-        headers: withAuth()
+        headers: await withAuthAndCsrf()
       })
       
       if (!res.ok) {
@@ -1368,7 +1410,7 @@ const api = {
       
       const res = await fetch(`${API_URL}/haber/resim-yukle`, {  // Doğru endpoint
         method: 'POST',
-        headers: withAuth(),
+        headers: await withAuthAndCsrf(),
         body: formData
       })
       
@@ -1500,7 +1542,7 @@ const api = {
       const url = `${API_URL}${ep}`
       const res = await fetch(url, {
         method: 'POST',
-        headers: { ...withAuth(), 'Content-Type': 'application/json' },
+        headers: { ...(await withAuthAndCsrf()), 'Content-Type': 'application/json' },
         body: JSON.stringify(data)
       })
       if (!res.ok) {
@@ -1520,7 +1562,7 @@ const api = {
       const url = `${API_URL}${ep}`
       const res = await fetch(url, {
         method: 'PUT',
-        headers: { ...withAuth(), 'Content-Type': 'application/json' },
+        headers: { ...(await withAuthAndCsrf()), 'Content-Type': 'application/json' },
         body: JSON.stringify(data)
       })
       if (!res.ok) {
@@ -1540,7 +1582,7 @@ const api = {
       const url = `${API_URL}${ep}`
       const res = await fetch(url, {
         method: 'DELETE',
-        headers: withAuth()
+        headers: await withAuthAndCsrf()
       })
       if (!res.ok) {
         const data = await safeJson(res)
