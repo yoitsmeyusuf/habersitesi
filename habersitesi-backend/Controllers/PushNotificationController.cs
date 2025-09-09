@@ -99,22 +99,7 @@ namespace habersitesi_backend.Controllers
             return Ok(new { publicKey });
         }
 
-        [HttpPost("test")]
-        [Authorize(Roles = "admin")]
-        public async Task<IActionResult> SendTestNotification()
-        {
-            var result = await _pushNotificationService.SendNotificationAsync(
-                "Test Bildirimi",
-                "Bu bir test bildirimidir. Sistem çalışıyor!",
-                "/",
-                "/icon-192x192.png"
-            );
 
-            if (result)
-                return Ok(new { message = "Test bildirimi gönderildi" });
-            
-            return BadRequest(new { message = "Test bildirimi gönderilemedi" });
-        }
     }
 
     // Additional DTOs

@@ -38,9 +38,7 @@ export const logger = {
   critical: (message, context = '') => {
     const safeMessage = typeof message === 'string' ? message : 'Critical error occurred'
     if (isProduction) {
-      // Production'da external logging service'e gönder
       console.error(`[CRITICAL] ${safeMessage}`, context ? `Context: ${context}` : '')
-      // TODO: External monitoring service integration (Sentry, LogRocket, etc.)
     } else {
       console.error(`[CRITICAL] ${safeMessage}`, context ? `Context: ${context}` : '')
     }

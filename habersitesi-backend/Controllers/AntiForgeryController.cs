@@ -22,14 +22,6 @@ namespace habersitesi_backend.Controllers
             return Ok(new { token = tokens.RequestToken });
         }
 
-        [HttpPost("test")]
-        [Authorize]
-        public async Task<IActionResult> TestCsrfProtection([FromBody] object data)
-        {
-            // Validate CSRF token
-            await _antiforgery.ValidateRequestAsync(HttpContext);
-            
-            return Ok(new { message = "CSRF validation successful", receivedData = data });
-        }
+
     }
 }

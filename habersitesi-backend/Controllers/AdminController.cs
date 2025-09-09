@@ -953,90 +953,6 @@ public class AdminController : ControllerBase
 
     #endregion
 
-    #region Mevcut Test Metotları
-
-    [HttpPost("test-email-connection")]
-    [Authorize(Roles = "admin")]
-    public async Task<IActionResult> TestEmailConnection()
-    {
-        try
-        {
-            var result = await _emailService.TestEmailConnectionAsync();
-            return Ok(new { 
-                success = result,
-                message = result ? "SMTP bağlantısı başarılı" : "SMTP bağlantısı başarısız",
-                timestamp = DateTime.UtcNow
-            });
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "E-mail bağlantı testi sırasında hata oluştu");
-            return BadRequest(new { 
-                success = false,
-                message = "E-mail bağlantı testi başarısız"
-            });
-        }
-    }
-
-    [HttpPost("send-test-email")]
-    [Authorize(Roles = "admin")]
-    public async Task<IActionResult> SendTestEmail([FromBody] TestEmailDto dto)
-    {
-        try
-        {
-            var testUser = new User
-            {
-                Username = "Test User",
-                Email = dto.Email
-            };
-
-            await _emailService.SendEmailConfirmationAsync(testUser, "http://localhost:5173/test-confirmation");
-            
-            return Ok(new { 
-                success = true,
-                message = "Test e-postası başarıyla gönderildi",
-                to = dto.Email,
-                timestamp = DateTime.UtcNow
-            });
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Test e-postası gönderilirken hata oluştu: {Error}", ex.Message);
-            return BadRequest(new { 
-                success = false,
-                message = "Test e-postası gönderilemedi"
-            });
-        }
-    }
-
-    [HttpGet("email-settings")]
-    [Authorize(Roles = "admin")]
-    public IActionResult GetEmailSettings()
-    {
-        var config = HttpContext.RequestServices.GetRequiredService<IConfiguration>();
-        return Ok(new
-        {
-            host = config["Smtp:Host"],
-            port = config["Smtp:Port"],
-            from = config["Smtp:From"],
-            passwordSet = !string.IsNullOrEmpty(config["Smtp:Password"])
-        });
-    }
-
-    [HttpPost("create-admin")]
-    [AllowAnonymous] // Geriye dönük uyumluluk için korundu
-    public async Task<IActionResult> CreateAdmin([FromBody] CreateAdminDto dto)
-    {
-        // Bu endpoint artık initial-setup ile değiştirildi, ama geriye dönük uyumluluk için korundu
-        return await InitialSetup(new InitialSetupDto 
-        { 
-            Username = dto.Username, 
-            Email = dto.Email, 
-            Password = dto.Password 
-        });
-    }   
-     #endregion
-
     #region Dashboard İstatistikleri
 
     [HttpGet("dashboard")]
@@ -1690,10 +1606,6 @@ public class AdminController : ControllerBase
 
 #region DTOs
 
-public class TestEmailDto
-{
-    public string Email { get; set; } = string.Empty;
-}
 
 public class CreateAdminDto
 {
