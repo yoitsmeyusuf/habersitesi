@@ -123,7 +123,7 @@ builder.Services.AddSingleton<IRateLimitCounterStore, MemoryCacheRateLimitCounte
 builder.Services.AddSingleton<IRateLimitConfiguration, RateLimitConfiguration>();
 builder.Services.AddSingleton<IProcessingStrategy, AsyncKeyLockProcessingStrategy>();
 
-// Add CORS - Production-safe configuration with debugging
+// Add CORS
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowFrontend",
@@ -131,20 +131,18 @@ builder.Services.AddCors(options =>
             if (builder.Environment.IsDevelopment())
             {
                 // Development: Allow localhost
-                // CORS: Development mode - AllowAnyOrigin enabled
                 policy.AllowAnyOrigin()
                       .AllowAnyHeader()
                       .AllowAnyMethod();
             }
             else
             {
-                // Production: Allow frontend to access API
+                // Production: Allow specific frontend origins
                 var allowedOrigins = new[] {
                     "https://habersitesi.rumbara.online",
                     "https://www.habersitesi.rumbara.online",
                     "http://habersitesi.rumbara.online"
                 };
-                // CORS: Production mode - Allowed origins configured
                 
                 policy.WithOrigins(allowedOrigins)
                 .AllowAnyHeader()
@@ -300,7 +298,7 @@ app.Use(async (context, next) =>
     {
         context.Response.StatusCode = 500;
 
-        // 🔧 CORS hataları için header manuel olarak eklenmeli
+        // CORS headers for error responses
         if (context.Request.Headers.ContainsKey("Origin"))
         {
             var origin = context.Request.Headers["Origin"].ToString();
@@ -334,22 +332,21 @@ if (app.Environment.IsDevelopment())
     app.UseSwaggerUI();
 }
 
-// Enable CORS - MUST BE EARLY in the pipeline
+// Enable CORS
 app.UseCors("AllowFrontend");
 
-// CORS debug logging and manual header addition for all responses
+// Response header management
 app.Use(async (context, next) =>
 {
     var origin = context.Request.Headers["Origin"].ToString();
     
     await next();
     
-    // Response sonrası CORS header'ı kontrolü ve manuel ekleme
+    // Ensure CORS headers for error responses
     if (!string.IsNullOrEmpty(origin))
     {
         var corsHeader = context.Response.Headers["Access-Control-Allow-Origin"].ToString();
         
-        // Eğer CORS header yoksa ve status code hata ise, manuel ekle
         if (string.IsNullOrEmpty(corsHeader) && context.Response.StatusCode >= 400)
         {
             var allowedOrigins = new[]
@@ -380,7 +377,7 @@ app.UseMiddleware<habersitesi_backend.Middleware.PerformanceTrackingMiddleware>(
 // Enable Rate Limiting
 app.UseIpRateLimiting();
 
-// Static files for uploads (should be before authentication/authorization for CORS preflight)
+// Static files for uploads
 app.UseStaticFiles();
 
 app.UseAuthentication();

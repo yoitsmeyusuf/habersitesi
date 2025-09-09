@@ -15,6 +15,16 @@ namespace habersitesi_backend.Middleware
 
         public async Task InvokeAsync(HttpContext context)
         {
+            // Generate correlation ID for request tracing
+            var correlationId = context.Request.Headers["X-Correlation-ID"].FirstOrDefault() 
+                             ?? Guid.NewGuid().ToString();
+            
+            // Add correlation ID to response headers
+            if (!context.Response.HasStarted)
+            {
+                context.Response.Headers["X-Correlation-ID"] = correlationId;
+            }
+
             var stopwatch = Stopwatch.StartNew();
             var endpoint = $"{context.Request.Method} {context.Request.Path}";
 
@@ -32,11 +42,13 @@ namespace habersitesi_backend.Middleware
                 var responseTime = stopwatch.ElapsedMilliseconds;
 
                 // Record metrics
-                performanceService?.RecordResponseTime(endpoint, responseTime);                // Log slow requests
+                performanceService?.RecordResponseTime(endpoint, responseTime);
+
+                // Log slow requests with correlation ID
                 if (responseTime > 1000)
                 {
-                    _logger.LogWarning("Slow request: {Endpoint} took {ResponseTime}ms", 
-                        endpoint, responseTime);
+                    _logger.LogWarning("Slow request: {Endpoint} took {ResponseTime}ms. CorrelationId: {CorrelationId}", 
+                        endpoint, responseTime, correlationId);
                 }
                 
                 // Add performance headers (only if response hasn't started)
@@ -54,7 +66,8 @@ namespace habersitesi_backend.Middleware
                     .GetService<Services.PerformanceMonitoringService>();
                 performanceService?.RecordError(endpoint);
 
-                _logger.LogError(ex, "Request failed: {Endpoint}", endpoint);
+                _logger.LogError(ex, "Request failed: {Endpoint}. CorrelationId: {CorrelationId}", 
+                    endpoint, correlationId);
                 throw;
             }
         }
