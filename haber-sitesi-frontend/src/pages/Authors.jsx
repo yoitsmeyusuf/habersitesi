@@ -28,7 +28,7 @@ const Authors = () => {
           const response = await api.get('/kimlik/yazarlar')
           const list = Array.isArray(response) ? response : (response.data || response.items || [])
           setAuthors(list)
-        } catch (apiError) {
+        } catch {
           // If API fails, use mock data for demonstration
           const mockAuthors = [
             {
