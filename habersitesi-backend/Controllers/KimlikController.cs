@@ -171,6 +171,35 @@ public class KimlikController : ControllerBase
         return Ok(user);
     }
 
+    [HttpGet("yazarlar")]
+    public async Task<IActionResult> GetAuthors()
+    {
+        try
+        {
+            var authors = await _context.Users
+                .Where(u => u.Role == "author" && u.Approved == true && u.EmailConfirmed == true)
+                .OrderBy(u => u.DisplayName ?? u.Username)
+                .Select(u => new {
+                    u.Id,
+                    u.Username,
+                    DisplayName = u.DisplayName ?? u.Username,
+                    u.Bio,
+                    u.ProfilePicture,
+                    NewsCount = _context.News.Count(n => n.IsApproved && n.Author == u.Username)
+                })
+                .ToListAsync();
+
+            return Ok(authors);
+        }
+        catch (Exception ex)
+        {
+            return StatusCode(500, new { 
+                message = "Yazarlar getirilemedi.", 
+                error = ex.Message 
+            });
+        }
+    }
+
     [HttpPut("profil")]
     [Authorize]
     public async Task<IActionResult> UpdateProfile([FromBody] UpdateProfileDto dto)
