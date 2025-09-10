@@ -107,8 +107,8 @@ async function safeJson(response) {
     
     try {
       return JSON.parse(text)
-    } catch (parseError) {
-      logger.error('JSON parse error:', parseError.message, 'Raw text:', text)
+    } catch {
+      logger.error('JSON parse error, raw text:', text)
       return { error: 'Invalid JSON response', rawText: text }
     }
   } catch (error) {
@@ -646,9 +646,9 @@ const api = {
       try {
         const text = await res.text()
         data = text ? JSON.parse(text) : {}
-      } catch (parseError) {
-        logger.error('JSON parse error:', parseError)
-        throw new Error(`Response parsing failed: ${parseError.message}`)
+      } catch {
+        logger.error('JSON parse error')
+        throw new Error('Response parsing failed')
       }
       
       if (!res.ok) {
@@ -1441,8 +1441,8 @@ const api = {
           } else {
             throw new Error(data.message || 'Dosya yüklenemedi')
           }
-        } catch (parseError) {
-          logger.error('🖼️ [UPLOAD] Response parse error:', parseError)
+        } catch {
+          logger.error('🖼️ [UPLOAD] Response parse error')
           reject(new Error('Sunucu yanıtı çözümlenemedi'))
         }
       })
@@ -1480,7 +1480,6 @@ const api = {
     }
 
     const results = []
-    let totalProgress = 0
     const fileCount = files.length
 
     for (let i = 0; i < files.length; i++) {
@@ -1556,7 +1555,7 @@ const api = {
           } else {
             throw new Error(data.message || 'Dosya yeniden boyutlandırılamadı')
           }
-        } catch (parseError) {
+        } catch {
           reject(new Error('Sunucu yanıtı çözümlenemedi'))
         }
       })

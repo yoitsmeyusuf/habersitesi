@@ -93,28 +93,17 @@ namespace habersitesi_backend.Controllers
         [HttpGet("vapid-public-key")]
         public IActionResult GetVapidPublicKey()
         {
-            var publicKey = HttpContext.RequestServices.GetRequiredService<IConfiguration>()["WebPush:PublicKey"] 
-                           ?? "BGIo8i1IPwDy0mZZyMfW4J_Bv4dOYElKUgkpF2QU2cRm5pIZU7YNxHc8xQo3kHT8vYoGUZKnJg8lZ2l1K3nP7iQ";
+            var publicKey = HttpContext.RequestServices.GetRequiredService<IConfiguration>()["WebPush:PublicKey"];
+            
+            if (string.IsNullOrEmpty(publicKey))
+            {
+                return BadRequest(new { message = "VAPID public key not configured" });
+            }
             
             return Ok(new { publicKey });
         }
 
-        [HttpPost("test")]
-        [Authorize(Roles = "admin")]
-        public async Task<IActionResult> SendTestNotification()
-        {
-            var result = await _pushNotificationService.SendNotificationAsync(
-                "Test Bildirimi",
-                "Bu bir test bildirimidir. Sistem çalışıyor!",
-                "/",
-                "/icon-192x192.png"
-            );
 
-            if (result)
-                return Ok(new { message = "Test bildirimi gönderildi" });
-            
-            return BadRequest(new { message = "Test bildirimi gönderilemedi" });
-        }
     }
 
     // Additional DTOs

@@ -22,18 +22,14 @@ const Authors = () => {
     const fetchAuthors = async () => {
       try {
         setLoading(true)
-        console.log('Authors sayfası yükleniyor...')
         
         // Try to get authors from new API endpoint
         try {
           const response = await api.get('/kimlik/yazarlar')
-          console.log('API Response:', response) // Debug log
           const list = Array.isArray(response) ? response : (response.data || response.items || [])
           setAuthors(list)
-          console.log('Authors set to:', list)
-        } catch (apiError) {
+        } catch {
           // If API fails, use mock data for demonstration
-          console.log('API çağrısı başarısız:', apiError.message)
           const mockAuthors = [
             {
               id: 1,

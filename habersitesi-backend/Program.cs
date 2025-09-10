@@ -2,7 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.IdentityModel.Tokens;
 using System.Text;
-using Microsoft.Extensions.DependencyInjection; // Optional, for IServiceCollection
+using Microsoft.Extensions.DependencyInjection;
 using Swashbuckle.AspNetCore.SwaggerGen;
 using Npgsql.EntityFrameworkCore.PostgreSQL;
 using habersitesi_backend.Models;
@@ -19,56 +19,33 @@ using AspNetCoreRateLimit;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 using habersitesi_backend.Middleware;
 using habersitesi_backend.Settings;
-using DotNetEnv; // .env dosyası desteği
-using Microsoft.AspNetCore.Server.Kestrel.Core; // Kestrel options için
+using DotNetEnv;
+using Microsoft.AspNetCore.Server.Kestrel.Core;
 
-// Generate new VAPID keys for testing
-// Uncomment these lines to generate new keys, then comment them back out
-/*
-var vapidKeys = VapidHelper.GenerateVapidKeys();
-Console.WriteLine("=== NEW VAPID KEYS ===");
-Console.WriteLine("Public Key: " + vapidKeys.PublicKey);
-Console.WriteLine("Private Key: " + vapidKeys.PrivateKey);
-Console.WriteLine("======================");
-*/
+
 
 var builder = WebApplication.CreateBuilder(args);
 
-// Production'da environment variables'ları yükle
-// .env.secrets dosyası varsa yükle (opsiyonel)
 var envPath = Path.Combine(builder.Environment.ContentRootPath, ".env.secrets");
 if (File.Exists(envPath))
 {
-    // Environment secrets loaded
     Env.Load(envPath);
-    
-    // Environment variable'larını configuration'a ekle
     builder.Configuration.AddEnvironmentVariables();
     
     var connString = Environment.GetEnvironmentVariable("DefaultConnection");
-    // Connection string configuration validated
-    
     var jwtKey = Environment.GetEnvironmentVariable("Jwt__Key");
-    // JWT configuration validated
     
-    // SiteSettings configuration'ını environment variable'lardan ekle
     var siteBaseUrl = Environment.GetEnvironmentVariable("SiteSettings__BaseUrl");
     if (!string.IsNullOrEmpty(siteBaseUrl))
     {
         builder.Configuration["SiteSettings:BaseUrl"] = siteBaseUrl;
-        // SiteSettings:BaseUrl configured
     }
     
     var siteProductionUrl = Environment.GetEnvironmentVariable("SiteSettings__ProductionUrl");
     if (!string.IsNullOrEmpty(siteProductionUrl))
     {
         builder.Configuration["SiteSettings:ProductionUrl"] = siteProductionUrl;
-        // SiteSettings:ProductionUrl configured
     }
-}
-else
-{
-    // Environment secrets file not found
 }
 
 // Add services to the container.
@@ -81,22 +58,19 @@ builder.Services.AddAntiforgery(options =>
 {
     options.HeaderName = "X-XSRF-TOKEN";
     options.Cookie.Name = "__RequestVerificationToken";
-    options.Cookie.HttpOnly = false; // Frontend needs to access the token
+    options.Cookie.HttpOnly = false; // Frontend needs to access token
     options.Cookie.SameSite = SameSiteMode.Strict;
     options.Cookie.SecurePolicy = builder.Environment.IsDevelopment() 
         ? CookieSecurePolicy.SameAsRequest 
         : CookieSecurePolicy.Always;
 });
 
-// Development ortamında AllowedHosts kontrolünü devre dışı bırak
 if (builder.Environment.IsDevelopment())
 {
     builder.Configuration["AllowedHosts"] = "*";
-    // Development mode: AllowedHosts set to * for easier local development
 }
 else
 {
-    // Production'da AllowedHosts environment variable'ını kontrol et
     var allowedHosts = Environment.GetEnvironmentVariable("AllowedHosts");
     if (!string.IsNullOrEmpty(allowedHosts))
     {
@@ -149,7 +123,7 @@ builder.Services.AddSingleton<IRateLimitCounterStore, MemoryCacheRateLimitCounte
 builder.Services.AddSingleton<IRateLimitConfiguration, RateLimitConfiguration>();
 builder.Services.AddSingleton<IProcessingStrategy, AsyncKeyLockProcessingStrategy>();
 
-// Add CORS - Production-safe configuration with debugging
+// Add CORS
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowFrontend",
@@ -157,20 +131,18 @@ builder.Services.AddCors(options =>
             if (builder.Environment.IsDevelopment())
             {
                 // Development: Allow localhost
-                // CORS: Development mode - AllowAnyOrigin enabled
                 policy.AllowAnyOrigin()
                       .AllowAnyHeader()
                       .AllowAnyMethod();
             }
             else
             {
-                // Production: Allow frontend to access API
+                // Production: Allow specific frontend origins
                 var allowedOrigins = new[] {
                     "https://habersitesi.rumbara.online",
                     "https://www.habersitesi.rumbara.online",
                     "http://habersitesi.rumbara.online"
                 };
-                // CORS: Production mode - Allowed origins configured
                 
                 policy.WithOrigins(allowedOrigins)
                 .AllowAnyHeader()
@@ -326,7 +298,7 @@ app.Use(async (context, next) =>
     {
         context.Response.StatusCode = 500;
 
-        // 🔧 CORS hataları için header manuel olarak eklenmeli
+        // CORS headers for error responses
         if (context.Request.Headers.ContainsKey("Origin"))
         {
             var origin = context.Request.Headers["Origin"].ToString();
@@ -360,22 +332,21 @@ if (app.Environment.IsDevelopment())
     app.UseSwaggerUI();
 }
 
-// Enable CORS - MUST BE EARLY in the pipeline
+// Enable CORS
 app.UseCors("AllowFrontend");
 
-// CORS debug logging and manual header addition for all responses
+// Response header management
 app.Use(async (context, next) =>
 {
     var origin = context.Request.Headers["Origin"].ToString();
     
     await next();
     
-    // Response sonrası CORS header'ı kontrolü ve manuel ekleme
+    // Ensure CORS headers for error responses
     if (!string.IsNullOrEmpty(origin))
     {
         var corsHeader = context.Response.Headers["Access-Control-Allow-Origin"].ToString();
         
-        // Eğer CORS header yoksa ve status code hata ise, manuel ekle
         if (string.IsNullOrEmpty(corsHeader) && context.Response.StatusCode >= 400)
         {
             var allowedOrigins = new[]
@@ -406,7 +377,7 @@ app.UseMiddleware<habersitesi_backend.Middleware.PerformanceTrackingMiddleware>(
 // Enable Rate Limiting
 app.UseIpRateLimiting();
 
-// Static files for uploads (should be before authentication/authorization for CORS preflight)
+// Static files for uploads
 app.UseStaticFiles();
 
 app.UseAuthentication();
