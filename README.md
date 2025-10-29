@@ -32,3 +32,9 @@ Kullanıcıların haberleri okuyabildiği, yorum yapabildiği ve site ile etkile
 Bu monorepo yapısı, frontend ve backend kod tabanlarını ayrı ayrı yönetmeyi kolaylaştırırken, projenin bütünsel olarak geliştirilmesine olanak tanır. Her bir bölümün kendi bağımlılıkları, testleri ve dağıtım süreçleri bulunmaktadır.
 
 Daha fazla teknik ayrıntı, kurulum adımları ve yapılandırma bilgileri için lütfen ilgili klasörlerdeki `README.md` dosyalarını inceleyin.
+
+## 🎬 Demo
+
+Projede kullanılan örnek bir tanıtım videosu `assets/demo.mp4` yolunda bulunmaktadır. Videoyu oynatmak için tarayıcınız HTML5 video desteğine ihtiyaç duyar; bazı platformlarda README içinde gömülü oynatma çalışmayabilir. Alternatif olarak dosyaya tıklayarak indirip oynatabilirsiniz.
+
+- Demo video (MP4): [./assets/demo.mp4](./assets/demo.mp4)
